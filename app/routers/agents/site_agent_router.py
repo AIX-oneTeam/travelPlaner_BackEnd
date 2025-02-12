@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from app.services.agents.site_agent_service import TravelPlanAgentService
+from app.services.agents.site_agent_service import SiteAgentService
 
 router = APIRouter()
 
@@ -19,7 +19,7 @@ async def get_site_plan(request: Request):
         if prompt:
             plan_data["prompt"] = prompt
 
-        travel_service = TravelPlanAgentService()
+        travel_service = SiteAgentService()
         result = await travel_service.create_tourist_plan(plan_data)
         return {
             "status": "success",
