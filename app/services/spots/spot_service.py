@@ -5,13 +5,14 @@ from app.data_models.data_model import Spot
 from app.repository.spots.spot_repository import delete_spot, save_spot, get_spot
 from datetime import datetime
 from app.utils.serialize_time import serialize_time
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-def reg_spot(spot: Spot, session: Session):
-    spot_id = save_spot(spot, session)
+async def reg_spot(spot: Spot, session: AsyncSession):
+    spot_id = await save_spot(spot, session)
     return spot_id
 
-def find_spot(spot_id: int, session: Session):
-    spot = get_spot(spot_id, session)
+async def find_spot(spot_id: int, session: AsyncSession):
+    spot = await get_spot(spot_id, session)
     serialized_spot = serialize_time(spot,  ["created_at", "updated_at"])
     return serialized_spot
 
@@ -19,7 +20,7 @@ def find_spot(spot_id: int, session: Session):
 # # 이미 존재하면서 요청 데이터에도 존재하면 내버려둠.
 # # 이미 존재하면서 요청 데이터에는 없으면 삭제
 # # 이미 존재하지 않으면서 요청 데이터에도 없으면 추가
-# def edit_spot(plan_id: int, spots: List[spot_request], session: Session) -> List[int]:
+# def edit_spot(plan_id: int, spots: List[spot_request], session: AsyncSession) -> List[int]:
 #     plan_spots = find_plan_spots(plan_id, session)
 #     spots_from_db = plan_spots["detail"]
 

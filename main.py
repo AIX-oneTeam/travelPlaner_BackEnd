@@ -22,7 +22,6 @@ from app.routers.agents.restaurant_agent_router import router as restaurant_agen
 from app.routers.agents.site_agent_router import router as site_agent_router
 from app.routers.agents.cafe_agent_router import router as cafe_router
 from app.routers.chceklists.checklist_router import router as checklist_router
-
 import os
 from dotenv import load_dotenv
 import logging
@@ -34,8 +33,14 @@ logging.basicConfig(
     # filename="app.log",  # 파일로 저장
     level=logging.INFO,  # 로그 레벨 설정
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # 로그 형식
+    datefmt="%Y-%m-%d %H:%M:%S",  # 날짜 형식
+    handlers=[
+        logging.StreamHandler(),
+    ],
 )
+
 logger = logging.getLogger(__name__)
+logger.info("💡로그 설정 완료")
 
 # FastAPI 애플리케이션 생성
 app = FastAPI(lifespan=lifespan)
@@ -74,7 +79,7 @@ async def jwt_auth_middleware(request: Request, call_next):
     try:
         # 현재 요청 경로 확인
         path = request.url.path
-        logger.info(f"요청 경로: {request.url.path}")
+        logger.info(f"💡요청 경로: {request.url.path}")
 
         # 공개 경로는 인증 없이 통과
         if path in PUBLIC_PATHS:
@@ -96,10 +101,10 @@ async def jwt_auth_middleware(request: Request, call_next):
         except HTTPException as he:
 
             # 액세스 토큰 만료 시 리프레시 토큰으로 재발급 시도
-            logger.info("액세스 토큰 만료 시 리프레시 토큰으로 재발급 시도")
+            logger.info("💡액세스 토큰 만료 시 리프레시 토큰으로 재발급 시도")
             refresh_token = request.cookies.get("refresh_token")
             if not refresh_token:
-                logger.warning("리프레시 토큰이 없습니다.")
+                logger.warning("💡리프레시 토큰이 없습니다.")
                 request.state.user = None
                 return await call_next(request)
 
@@ -119,7 +124,7 @@ async def jwt_auth_middleware(request: Request, call_next):
 
             except Exception as e:
                 # 리프레시 토큰 갱신 실패
-                logger.warning("리프레시 토큰 갱신 실패")
+                logger.warning("💡리프레시 토큰 갱신 실패")
                 print(f"리프레시 토큰 갱신 실패: {str(e)}")
                 response = await call_next(request)
                 response.delete_cookie("access_token")
@@ -127,7 +132,7 @@ async def jwt_auth_middleware(request: Request, call_next):
                 return response
 
     except Exception as e:
-        logger.warning(f"JWT 미들웨어 오류 : {str(e)}")
+        logger.warning(f"💡JWT 미들웨어 오류 : {str(e)}")
         # 예상치 못한 오류 처리
         print(f"JWT 미들웨어 오류: {str(e)}")
         request.state.user = None

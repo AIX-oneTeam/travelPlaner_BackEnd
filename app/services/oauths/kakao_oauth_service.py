@@ -1,7 +1,6 @@
 import os
 import httpx
 from dotenv import load_dotenv
-
 from app.utils.oauths.jwt_utils import create_jwt_kakao, create_refresh_token, decode_jwt
 
 

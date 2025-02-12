@@ -21,6 +21,12 @@ def time_check(func):
         execution_time_minute = execution_time / 60
         # 초 측정
         execution_time_second = execution_time % 60
+
+        # 포매팅
+        execution_time_minute = round(execution_time_minute, 2)
+        execution_time_second = round(execution_time_second, 2)
+
         print(f"💡[ time_check ] {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
         return result
     return wrapper
+

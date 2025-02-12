@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, Response
 from app.dtos.common.response import ErrorResponse, SuccessResponse
-from app.repository.db import get_session_sync
 from app.services.plans.plan_service import find_member_plans
-from sqlmodel import Session
 
 router = APIRouter()
 

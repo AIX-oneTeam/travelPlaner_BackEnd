@@ -1,21 +1,30 @@
 from contextlib import asynccontextmanager
 import logging
 import os
-import inspect
-import traceback
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel, Session
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from typing import AsyncGenerator
 
 # 환경 변수 로드
 print("--------------------db.py---------------------")
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-engine = create_engine(DATABASE_URL, echo=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=Session) # SQL모델의 세션 사용하도록 설정(exec()메서드 사용위함.)
+# 비동기 엔진 생성
+engine = create_async_engine(DATABASE_URL, echo=True)
+
+# 비동기 세션 팩토리 생성
+async_session_maker = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -25,54 +34,77 @@ async def lifespan(app: FastAPI):
     app.state.engine = engine
 
     try:
-        yield  # 애플리케이션 실행 동안 유지
+        yield
     finally:
         print("Shutting down application...")
-        
-        # 1. 데이터베이스 연결 정리
-        app.state.engine.dispose()
+        await engine.dispose()
         print("Database connection closed.")
-        
+
+# 의존성 주입을 위한 비동기 세션 제공자
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    async with async_session_maker() as session:
+        try:
+            logging.info(f"💡[ 세션 생성 ] {session}")
+            yield session
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logging.error(f"Database error: {str(e)}")
+            raise
+        finally:
+            logging.info(f"💡[ 세션 종료 ] {session}")
+            await session.close()
+
 # 동기식 연결
-# SQLAlchemy 세션을 생성하고 반환하는 제너레이터
-def get_session_sync():
-    session = SessionLocal()
-    try:
-        frame = inspect.stack()[2]
-        filename = frame.filename
-        function_name = frame.function
-        print(f"💡[ 세션 생성 ] {filename} - {function_name}")
+# SQLAlchemy 세션을 생성하고 반환하는 제너레이터 - deprecated
+# def get_session_sync():
+#     session = SessionLocal()
+#     try:
+#         frame = inspect.stack()[2]
+#         filename = frame.filename
+#         function_name = frame.function
+#         print(f"💡[ 세션 생성 ] {filename} - {function_name}")
 
-        yield session
-        session.commit()
-    except Exception as e:
-        logging.debug(f"💡logger: 데이터 베이스 예외 발생: {e}")
-        session.rollback()
-        raise RuntimeError("데이터베이스 연결 실패") from e
-    finally:
-        print(f"💡[ 세션 종료 ] {filename} - {function_name}")
+#         yield session
+#         session.commit()
+#     except Exception as e:
+#         logging.debug(f"💡logger: 데이터 베이스 예외 발생: {e}")
+#         session.rollback()
+#         raise RuntimeError("데이터베이스 연결 실패") from e
+#     finally:
+#         print(f"💡[ 세션 종료 ] {filename} - {function_name}")
 
-        session.close()
+#         session.close()
 
-def init_table_by_SQLModel(): 
-    with engine.connect() as connection:
-        print("테이블을 삭제합니다.")
-        SQLModel.metadata.drop_all(connection)
-        print("테이블 삭제 완료")
-        print("테이블을 생성합니다.")
-        SQLModel.metadata.create_all(connection)
-        print("테이블 생성 완료")
+# 테이블 초기화 함수
+async def init_table_by_SQLModel():
+    async with engine.begin() as conn:
+        # 기존 테이블 삭제
+        await conn.run_sync(SQLModel.metadata.drop_all)
+        print("테이블을 삭제했습니다.")
         
-    # 테이블 초기화 시 행정구역 CSV 데이터 삽입
-    try:
-        import pandas as pd
-        data = pd.read_csv('administrative_division.csv')
-        data.to_sql('administrative_division', con=engine, if_exists='append', index=False)
-        print(f"총 {len(data)}개의 행 삽입 완료.")
-    except Exception as e:
-        print(f"CSV 데이터 삽입 실패: {e}")
+        # 새 테이블 생성
+        await conn.run_sync(SQLModel.metadata.create_all)
+        print("테이블을 생성했습니다.")
         
-def check_table_exists_by_SQLModel():
+        # CSV 데이터 삽입
+        try:
+            import pandas as pd
+            data = pd.read_csv('administrative_division.csv')
+            await conn.run_sync(
+                lambda sync_conn: data.to_sql(
+                    'administrative_division',
+                    con=sync_conn,
+                    if_exists='append',
+                    index=False
+                )
+            )
+            print(f"총 {len(data)}개의 행 삽입 완료.")
+        except Exception as e:
+            print(f"CSV 데이터 삽입 실패: {e}")
+
+# 테이블 존재 여부 확인
+async def check_tables():
     print("---------메타데이터 테이블 목록---------")
     print(SQLModel.metadata.tables)
     print("--------------------------------------")

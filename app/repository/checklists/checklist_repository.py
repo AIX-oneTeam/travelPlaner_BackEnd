@@ -1,19 +1,18 @@
 from app.dtos.checklist_models import ChecklistCreate
 from typing import List
-from sqlmodel import Session
 from fastapi import HTTPException
 from app.data_models.data_model import Checklist
-
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 # 저장
-def save_checklist_item(checklist_items: List[ChecklistCreate], session: Session) :
+async def save_checklist_item(checklist_items: List[ChecklistCreate], session: AsyncSession) :
     try:
         saved_items = []
         for item in checklist_items :
             checklist_item = Checklist(plan_id=item.plan_id, text=item.text, checked=item.checked)
-            session.add(checklist_item)
-            session.commit()
-            session.refresh(checklist_item)
+            await session.add(checklist_item)
+            await session.commit()
+            await session.refresh(checklist_item)
             saved_items.append(checklist_item)
         return saved_items
     except Exception as e:
@@ -22,20 +21,20 @@ def save_checklist_item(checklist_items: List[ChecklistCreate], session: Session
 
 
 #읽기
-def read_checklist_item(plan_id: int, session: Session):
+async def read_checklist_item(plan_id: int, session: AsyncSession):
     try:
-        got_checklist = session.exec(Checklist).filter(Checklist.plan_id == plan_id).all()
+        result = await session.exec(Checklist)
+        got_checklist = result.filter(Checklist.plan_id == plan_id).all()
         return got_checklist
     except Exception as e:
         print(f"Error in read_checklist_item reposotiry: {e}")
 
 
 #삭제
-def delete_checklist_item(plan_id : int, session: Session):
+async def delete_checklist_item(plan_id : int, session: AsyncSession):
     try:
-        session.exec(Checklist).filter(Checklist.plan_id == plan_id).delete()
-        session.commit()
-        
+        result = await session.exec(Checklist)
+        result.filter(Checklist.plan_id == plan_id).delete()
         return plan_id
     except Exception as e:
         print(f"Error int delete_checklist_item repository: {e}")

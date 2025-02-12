@@ -1,16 +1,16 @@
 from fastapi import APIRouter,Response, Depends
-from sqlmodel import Session
 
 from app.data_models.data_model import Member
+from app.repository.db import get_async_session
 from app.repository.members.mebmer_repository import is_exist_member_by_email, save_member
 from app.services.oauths.google_oauth_service import handle_google_callback
-from app.repository.db import get_session_sync
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 router = APIRouter()
 
 
 @router.get("/callback")
-async def google_callback(code:str, state:str, response: Response, session: Session = Depends(get_session_sync)):
+async def google_callback(code:str, state:str, response: Response, session: AsyncSession = Depends(get_async_session)):
     """
     구글 인증 코드를 받아 사용자 정보를 처리합니다.
     """
@@ -38,8 +38,8 @@ async def google_callback(code:str, state:str, response: Response, session: Sess
         httponly=True
     )
 
-    if not is_exist_member_by_email(user_data["email"], "google", session):
-        save_member(Member(
+    if not await is_exist_member_by_email(user_data["email"], "google", session):
+        await save_member(Member(
             email=user_data["email"],
             name=user_data["nickname"],
             nickname=user_data["nickname"],

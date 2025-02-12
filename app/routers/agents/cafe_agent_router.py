@@ -15,7 +15,7 @@ async def get_cafes(user_input: TravelPlanRequest):
     try:
         start_time = datetime.now()   
 
-        result = await cafe_service.cafe_agent(user_input.model_dump())
+        result = await cafe_service.create_recommendation(user_input.model_dump())
         
         end_time = datetime.now()
         execution_time = (end_time - start_time).total_seconds()
@@ -32,7 +32,7 @@ async def get_cafes(user_input: TravelPlanRequest):
                 }
             )    
 
-        print(f"`cafe_agent()` 실행 시간: {execution_time:.4f}초")
+        print(f"`create_recommendation()` 실행 시간: {execution_time:.4f}초")
         
         return {
             "status": "success",
