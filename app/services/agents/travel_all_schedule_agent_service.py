@@ -1,102 +1,14 @@
-import json
 import os
 from crewai import Agent, Task, Crew, LLM
 from dotenv import load_dotenv
-from crewai.tools import BaseTool
 from app.dtos.spot_models import spots_pydantic, calculate_trip_days
 from datetime import datetime
 from app.utils.time_check import time_check
+from app.services.agents.tools.all_schedule_agent_tool import HaversineRouteOptimizer
 
 load_dotenv()
-KAKAO_CLIENT_ID = os.getenv("KAKAO_CLIENT_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
-
-
-import os
-import requests
-import json
-from dotenv import load_dotenv
-from crewai.tools import BaseTool
-
-class KakaoMapRouteTool(BaseTool):
-    name: str = "KakaoMapRoute"
-    description: str = "여행 일정의 최적 경로를 계산하고 각 장소 간 거리 정보를 제공합니다."
-
-    def _run(self, spots: list) -> str:
-        try:
-            if len(spots) < 2:
-                return json.dumps({"error": "최소 두 개 이상의 장소가 필요합니다."}, ensure_ascii=False)
-
-            # 출발지 설정 (첫 번째 장소)
-            origin = {
-                "name": spots[0].get("kor_name", ""),
-                "x": spots[0]["longitude"],
-                "y": spots[0]["latitude"]
-            }
-
-            # 목적지 설정 (마지막 장소)
-            destination = {
-                "name": spots[-1].get("kor_name", ""),
-                "x": spots[-1]["longitude"],
-                "y": spots[-1]["latitude"]
-            }
-
-            # 경유지 설정 (중간 장소들)
-            waypoints = [
-                {
-                    "name": spot.get("kor_name", ""),
-                    "x": spot["longitude"],
-                    "y": spot["latitude"]
-                }
-                for spot in spots[1:-1]
-            ]
-
-            # API 요청 본문 생성
-            payload = {
-                "origin": origin,
-                "destination": destination,
-                "waypoints": waypoints,
-                "priority": "RECOMMEND"
-            }
-
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"KakaoAK {KAKAO_CLIENT_ID}"
-            }
-
-            # API 요청
-            response = requests.post(
-                "https://apis-navi.kakaomobility.com/v1/waypoints/directions",
-                headers=headers,
-                data=json.dumps(payload)
-            )
-
-            if response.status_code == 200:
-                route_data = response.json()
-                # 경로 최적화 결과를 spots에 반영
-                optimized_spots = []
-                for route in route_data.get("routes", []):
-                    for section in route.get("sections", []):
-                        for guide in section.get("guides", []):
-                            location = guide.get("location", {})
-                            lat = location.get("y")
-                            lon = location.get("x")
-                            # 원래의 spot 정보와 매칭하여 추가 정보 보존
-                            for spot in spots:
-                                if spot["latitude"] == lat and spot["longitude"] == lon:
-                                    optimized_spot = spot.copy()
-                                    optimized_spot["distance_from_prev"] = guide.get("distance", 0)
-                                    optimized_spots.append(optimized_spot)
-                                    break
-                return json.dumps(optimized_spots, ensure_ascii=False)
-            else:
-                return json.dumps({"error": f"API 요청 실패: {response.status_code}"}, ensure_ascii=False)
-
-        except Exception as e:
-            return json.dumps({"error": f"[KakaoMapRouteTool] 에러: {str(e)}"}, ensure_ascii=False)
-
-
 
 class TravelScheduleAgentService:
     """
@@ -113,7 +25,7 @@ class TravelScheduleAgentService:
     def initialize(self):
         print("TravelScheduleAgentService 초기화 중...")
         self.llm = llm
-        self.route_tool = KakaoMapRouteTool()
+        self.route_tool = HaversineRouteOptimizer()
         
         self.planner = Agent(
             role="여행 일정 최적화 플래너",
@@ -158,7 +70,8 @@ class TravelScheduleAgentService:
                 output_pydantic=spots_pydantic,
             )
 
-            Crew(agents=[self.planner], tasks=[planning_task], verbose=True).kickoff(inputs=user_input)
+            crew = Crew(agents=[self.planner], tasks=[planning_task], verbose=True)
+            result = crew.kickoff(inputs=user_input)
                     
             response_json = {
                 "message": "요청이 성공적으로 처리되었습니다.",
@@ -169,7 +82,7 @@ class TravelScheduleAgentService:
                     "main_location": main_location,
                     "created_at": datetime.now().strftime("%Y-%m-%d"),
                 },
-                "spots": planning_task.output.pydantic.model_dump()
+                "spots": result.pydantic.model_dump()
             }
             return response_json
 

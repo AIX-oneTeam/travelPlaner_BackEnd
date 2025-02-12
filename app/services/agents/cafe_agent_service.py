@@ -1,7 +1,7 @@
 from typing import List
 from crewai import Agent, Task, Crew, LLM, Process
 from app.dtos.spot_models import spots_pydantic,calculate_trip_days
-from app.services.agents.naver_map_crawler import GetCafeListTool, GetCafeBusinessTool
+from app.services.agents.naver_map_crawler import GetCafeListTool
 from app.services.agents.travel_all_schedule_agent_service import spots_pydantic, calculate_trip_days
 from pydantic import BaseModel
 import os
@@ -32,7 +32,6 @@ class CafeAgentService:
             max_tokens=4000
         )
         self.get_cafe_list_tool = GetCafeListTool()
-        self.get_cafe_business_tool = GetCafeBusinessTool()
 
         # 에이전트 정의
         self.researcher = Agent(
@@ -49,16 +48,6 @@ class CafeAgentService:
             stop_on_failure=True
         )
         
-        self.checker = Agent(
-        role="카페 검증 전문가",
-        goal="researcher가 분석한 데이터를 기반으로 정보를 수집하고 입력하세요.",
-        backstory="resercher가 준 카페리스트를 토대로 정확한 정보를 찾아주세요",
-        max_iter=1,
-        allow_delegation=False,
-        tools=[self.get_cafe_business_tool],
-        llm=self.llm,
-        verbose=True,
-    )
         self.crew = None   
         
     async def cafe_agent(self, user_input, user_prompt=""):
@@ -75,60 +64,31 @@ class CafeAgentService:
         # 태스크 정의(user_input에 다라 값이 바뀌므로 __init__밖에 설정)
         researcher_task = Task(
             description="""
-            주요 목표:
-            - {main_location} 지역의 카페 {n}개 선정
-            - 고객 선호도: {concepts}
-            - 특별 요구사항: {user_prompt}
-            - 주 연령대: {ages}
-
-            분석 요구사항:
-            1. 카페 특징 분석
-            2. 주요 메뉴 확인
-            3. 긍정적 리뷰 중심 분석
+            고객의 정보를 반영한 {n}개의 카페 정보를 반환해주세요.
+            tool 사용시 검색어는 "{main_location} 카페"를 입력해주세요
+            description에는 카페의 리뷰를 분석해 사람들이 공통적으로 좋아했던 카페의 주요 특징과 메뉴 이름을 포함해 간략히 적어주세요.
             
-            tool 사용시 "{main_location} 카페"로 검색
-            반드시 서로 다른 이름의 {n}개의 카페를 반환해주세요.
+            고객의 선호도({concepts})와 요구사항({user_prompt})에 "프랜차이즈"가 포함되지 않는 경우, 프랜차이즈 카페는 제외해주세요.
+            프랜차이즈 카페 : 스타벅스, 투썸플레이스, 이디야, 빽다방, 메가커피 등 전국에 매장이 5개 이상인 커피 전문점 
+ 
+            고객의 요구사항({user_prompt}), 여행 컨셉({concepts}), 주 연령대({ages})를 반영해 우선 순위를 정하고 우선 순위가 높은 카페를 반환해주세요.    
+            부정적인 의견이 있으면 선택하지 마세요.
+            
             모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
             """,
             expected_output="""
-            다음과 같은 형식으로 데이터를 반환하세요.
-            rank: "추천 우선순위" 
-            reason: "해당 우선순위를 정한 이유, 다른 카페들보다 추천하는 이유"
-            place_id: "네이버 place_id"
-            kor_name: "카페 이름"
-            description: "카페 주요 특징 및 시그니처 메뉴"
-            address: "주소"
-            url: "홈페이지 주소"
-            image_url: "이미지 주소" 
-            map_url: "지도 주소"
-            latitude: "위도" 
-            longitude: "경도" 
-            phone_number: "전화번호"
+            서로 다른 {n}개의 카페 정보를 반환하세요.
             """,        
-            agent=self.researcher
+            agent=self.researcher,
+            output_json=spots_pydantic
         )
-
-        checker_task = Task(
-            description="""
-            researcher가 반환한 카페들의 정보에 추가로 운영시간, 웹사이트 정보를 수집하고 수정해주세요.
-            tool 사용시 입력값은 researcher가 반환한 카페들의 place_id들을 묶어 list형태로 변환해 입력해주세요.
-            """,
-            expected_output="""
-            모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요. 
-            """,
-            context=[researcher_task],
-            output_json=spots_pydantic,
-            agent=self.checker
-        )
-
 
         # 멀티 에이전트 시스템 설정
         crew = Crew(
-            agents=[self.researcher, self.checker],
-            tasks=[researcher_task, checker_task],
+            agents=[self.researcher],
+            tasks=[researcher_task],
             process=Process.sequential,
-            verbose=True,
-            context=[researcher_task]  
+            verbose=True
         )
 
         # 실행

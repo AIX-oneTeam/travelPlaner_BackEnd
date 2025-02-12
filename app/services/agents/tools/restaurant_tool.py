@@ -5,6 +5,7 @@ from typing import List, Dict
 from dotenv import load_dotenv
 import os
 import re
+import httpx
 
 # 환경 변수 로드
 load_dotenv()
@@ -12,6 +13,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_MAP_API_KEY = os.getenv("GOOGLE_MAP_API_KEY")
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
+KAKAO_API_KEY = os.getenv("KAKAO_API_KEY")
 
 
 def clean_query(query: str) -> str:
@@ -36,6 +38,30 @@ def clean_query(query: str) -> str:
         if line:
             clean_lines.append(line)
     return " ".join(clean_lines)
+
+
+async def check_url_openable_async(url: str) -> bool:
+    """
+    주어진 URL에 대해 HEAD 요청을 보내어 접근 가능한지 확인합니다.
+
+    - HTTP 상태 코드가 200 이상 400 미만이면 접근 가능(True)로 간주합니다.
+    - 예외가 발생하거나 상태 코드가 해당 범위에 있지 않으면 False를 반환합니다.
+    """
+    # URL이 빈 문자열이면 False 반환
+    if not url:
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.head(url, follow_redirects=True)
+            if 200 <= response.status_code < 400:
+                return True
+            else:
+                return False
+    except Exception as e:
+        print(f"Error checking URL '{url}': {e}")
+        return False
+
 
 # 1. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
 class GeocodingTool(BaseTool):
@@ -90,8 +116,8 @@ class RestaurantBasicSearchTool(BaseTool):
                     "title": result.get("name"),
                     "rating": result.get("rating", 0),
                     "reviews": result.get("user_ratings_total", 0),
-                    "latitude": result["geometry"]["location"]["lat"],
-                    "longitude": result["geometry"]["location"]["lng"],
+                    # "latitude": result["geometry"]["location"]["lat"],
+                    # "longitude": result["geometry"]["location"]["lng"],
                 }
         except Exception as e:
             print(f"[RestaurantBasicSearchTool] Details Error: {e}")
@@ -175,6 +201,8 @@ class NaverWebSearchTool(BaseTool):
         headers = {
             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
             "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Referer": "https://search.naver.com/",
         }
 
         # 입력 문자열을 clean_query 함수를 통해 정리합니다.
@@ -234,6 +262,8 @@ class NaverImageSearchTool(BaseTool):
         headers = {
             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
             "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Referer": "https://search.naver.com/",
         }
 
         query = clean_query(query)
@@ -243,7 +273,7 @@ class NaverImageSearchTool(BaseTool):
             "query": query,
             "display": 5,
             "sort": "sim",
-            "filter": "large",
+            "filter": "all",
         }
         try:
             async with session.get(url, headers=headers, params=params) as response:
@@ -251,9 +281,15 @@ class NaverImageSearchTool(BaseTool):
                 items = data.get("items", [])
                 if not items:
                     return "https://via.placeholder.com/300x200?text=No+Image"
-                return items[0].get(
-                    "link", "https://via.placeholder.com/300x200?text=No+Image"
-                )
+
+                # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
+                for item in items:
+                    img_url = item.get("link", "")
+                    if await check_url_openable_async(img_url):
+                        return img_url
+
+                # 만약 모두 접근 불가능하다면, 기본 이미지 URL 반환
+                return "https://via.placeholder.com/300x200?text=No+Image"
         except Exception as e:
             print(f"네이버 이미지 검색 오류: {str(e)}")
             return "https://via.placeholder.com/300x200?text=Error"
