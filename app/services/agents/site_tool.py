@@ -14,7 +14,7 @@ AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
 
 # 카카오 API 키 (카카오 지도 API에 사용 중인 REST API 키)
-KAKAO_API_KEY = os.getenv("KAKAO_API_KEY")
+KAKAO_MAP_API_KEY = os.getenv("KAKAO_MAP_API_KEY")
 
 
 async def check_url_openable_async(url: str) -> bool:
@@ -173,7 +173,7 @@ async def get_lat_lon_for_place_kakao(address: str) -> (float, float):
     API 문서: https://apis.map.kakao.com/web/guide/#addressCoord
     """
     url = "https://dapi.kakao.com/v2/local/search/address.json"
-    headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
+    headers = {"Authorization": f"KakaoAK {KAKAO_MAP_API_KEY}"}
     params = {"query": address}
     try:
         async with httpx.AsyncClient() as client:
