@@ -6,6 +6,7 @@ from typing import List, Dict, Optional
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
+from dataclasses import dataclass
 import os
 from app.services.agents.tools.restaurant_tool import (
     GeocodingTool,
@@ -14,6 +15,14 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
+
+
+@dataclass
+class ProcessResult:
+    message: str
+    plan: dict
+    spots: List[dict]
+
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -34,7 +43,7 @@ class RestaurantAgentService:
     def initialize(self):
         """서비스 초기화"""
         # print("RestaurantAgentService 초기화 중...")
-        self.llm = LLM(model="gpt-4o", temperature=0, api_key=OPENAI_API_KEY)
+        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
         self.restaurant_search_tool = RestaurantBasicSearchTool()
