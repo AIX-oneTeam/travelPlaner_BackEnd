@@ -45,37 +45,73 @@ class TravelScheduleAgentService:
     def _create_tasks(self) -> List[Task]:
         """Task들을 생성하는 메서드"""
         task_description = """
-        [최종 여행 일정 생성]
-        - 여행 기간: {start_date} ~ {end_date}
-        - external_data에는 다음 세 가지 카테고리의 장소들이 포함되어 있습니다:
-        1. restaurant: 맛집 목록
-        2. cafe: 카페 목록
-        3. site: 관광지 목록
-        
-        - day_x: 방문 날짜
-        - order: 해당 날짜의 방문 순서
-        -spot_time: 해당 스팟의 방문 추천 시간.
+        [FINAL TRAVEL ITINERARY GENERATION]
 
-        일정 구성 필수 규칙:
-        1. 아침 일정 (08:00)
-        - site(관광지) 목록에서 1곳 선택
-        - cafe(카페) 목록에서 1곳 선택
+        INPUT:
+        - Travel Period: {start_date} ~ {end_date}
+        - Travel Region: {main_location}  
+        (예: "서울특별시 - 강남구" 또는 사용자가 선택한 다른 지역)
+        - External Data: 외부 데이터에는 아래 네 가지 카테고리의 장소 목록이 포함되어 있습니다.
+            1. restaurant (Restaurants)
+            2. cafe (Cafes)
+            3. site (Tourist Sites)
+            4. accommodation (Accommodations)
 
-        2. 점심 일정 (12:00)
-        - restaurant(맛집) 목록에서 1곳 선택
-        - site(관광지) 목록에서 2곳 선택
+        Each place record includes the following attributes:
+        - day_x: The travel day assigned to the place, which must start at 1 and be assigned consecutively based on the travel period.
+        - order: The visitation order within that day.
+        - spot_time: The recommended visit time (e.g., "08:00", "12:00", "18:00", "1박", etc.)
 
-        3. 저녁 일정 (18:00)
-        - restaurant(맛집) 목록에서 1곳 선택
-        - 숙소가 있다면 포함
-        중요 제약사항:
-        - 각 카테고리(restaurant, cafe, site)별로 제공된 데이터만 사용할 것
-        - 새로운 장소를 임의로 생성하지 말 것
-        - 필요한 카테고리의 데이터가 부족하면 해당 시간대는 비워둘 것
-        - 이동 거리와 시간을 고려하여 효율적인 동선으로 구성할 것
-        - 각 장소는 중복 사용하지 않을 것
+        TASK:
+        Using only the provided external data (i.e., only the categories present in the external data) and following the rules and constraints below, generate a FINAL TRAVEL ITINERARY. The final output MUST be in Korean.
+
+        RULES FOR ITINERARY CONSTRUCTION:
+        1. For each travel day, divide the day into time slots according to the available data categories:
+        - If the external data includes "site" and "cafe":
+            • Morning (08:00): Select 1 tourist site from "site" and 1 cafe from "cafe".
+        - If the external data includes "restaurant" and "site":
+            • Lunch (12:00): Select 1 restaurant from "restaurant" and 2 tourist sites from "site".
+        - If the external data includes "restaurant" and "accommodation":
+            • Evening (18:00): Select 1 restaurant from "restaurant" and, if it is not the final travel day (i.e., the day corresponding to {end_date}), select 1 accommodation from "accommodation".
+            
+        → Do not include a time slot if the required category is missing in the external data.  
+            (For example, if "cafe" data is absent, omit the corresponding part of the Morning slot.)
+
+        2. ADDITIONAL CONSTRAINTS:
+        - Use only the provided data from each category; DO NOT create any new places.
+        - Do NOT reuse any selected place more than once across the itinerary.
+        - Do NOT fill missing categories with empty values; include only the slots for which data is provided.
+        - Optimize the itinerary for efficient travel routes, taking into account distance and time.
+        - For each day’s itinerary, ensure that the final element in the Evening slot (the accommodation) is assigned on every day except the final travel day.
+        - All day_x values must start from 1 and be assigned consecutively for each travel day.
+
+        CHAIN-OF-THOUGHT (Step-by-Step Reasoning):
+        1. Parse the user inputs ({start_date}, {end_date}, {main_location}) to determine the total travel period and region.
+        2. Check the external data to identify which categories (restaurant, cafe, site, accommodation) are available.
+        3. Dynamically generate an itinerary for each day within the travel period, assigning day_x values starting at 1 and increasing consecutively.
+        4. For each day:
+        - Morning (08:00):  
+            • If "site" data is available, choose 1 tourist site.
+            • If "cafe" data is available, choose 1 cafe.
+        - Lunch (12:00):
+            • If "restaurant" data is available, choose 1 restaurant.
+            • If "site" data is available, choose 2 tourist sites.
+        - Evening (18:00):
+            • If "restaurant" data is available, choose 1 restaurant.
+            • If "accommodation" data is available and it is not the final travel day, choose 1 accommodation.
+        5. For every selected place, assign appropriate values for:
+        - day_x: The specific travel day (starting from 1 and increasing consecutively)
+        - order: The visitation order within that day
+        - spot_time: The scheduled time (e.g., "08:00", "12:00", "18:00", or "1박" for accommodations)
+        6. Ensure that no place is selected more than once and that all selections come solely from the provided external data.
+        7. If data for any required slot is missing (i.e., the corresponding category is not present in the external data), simply omit that time slot.
+        8. Construct the final itinerary with an efficient travel route.
 
         External Data: {external_data}
+
+        Based on the above conditions and chain-of-thought, generate the FINAL TRAVEL ITINERARY in Korean.
+
+
         """
         return [Task(
             description=task_description,
