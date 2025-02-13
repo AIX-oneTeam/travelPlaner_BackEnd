@@ -190,15 +190,22 @@ class RestaurantBasicSearchTool(BaseTool):
             return candidates
 
         try:
-            # 1차 필터링: 평점 4.0 이상 & 리뷰 500개 이상
+            # 1차: 대도시 기준 (현재와 동일)
             all_candidates = await fetch_places(4.0, 500)
 
-            # 첫 번째 결과가 2개 미만이면 기준 완화 (외곽 지역 판단)
+            # 2차: 중소도시 기준 (조정)
             if len(all_candidates) < 2:
                 print(
-                    "첫 페이지 결과가 2개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 100개 이상) 후 재요청"
+                    "첫 페이지 결과가 2개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 200개 이상) 후 재요청"
                 )
-                all_candidates = await fetch_places(3.5, 100)
+                all_candidates = await fetch_places(3.5, 200)  # 리뷰 수 상향 조정
+
+                # 3차: 외곽/지방 기준 (조정)
+                if len(all_candidates) < 2:
+                    print(
+                        "두 번째 결과도 2개 미만 → 필터링 조건 추가 완화 (평점 3.3 이상, 리뷰 100개 이상) 후 재요청"
+                    )
+                    all_candidates = await fetch_places(3.3, 100)  # 평점/리뷰 수 모두 상향 조정
 
             print(f"최종 수집된 맛집 수: {len(all_candidates)}")
         except Exception as e:
