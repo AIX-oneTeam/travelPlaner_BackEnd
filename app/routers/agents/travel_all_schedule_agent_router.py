@@ -7,7 +7,7 @@ import asyncio
 from app.services.agents.travel_all_schedule_agent_service import (
     TravelScheduleAgentService,
 )
-from app.services.agents.site_agent_service import SiteAgentService
+from app.services.agents.site_agent_service import TouristAgentService
 from app.services.agents.accommodation_agent_4 import run
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
@@ -52,7 +52,7 @@ async def generate_plan(
             restaurant_service = RestaurantAgentService()
             tasks["restaurant"] = restaurant_service.create_recommendation(input_dict)
         if "site" in agent_type:
-            site_agent_service = SiteAgentService()
+            site_agent_service = TouristAgentService()
             tasks["site"] = site_agent_service.create_tourist_plan(input_dict)
         if "cafe" in agent_type:
             cafe_agent_service = CafeAgentService()

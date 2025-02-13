@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 import traceback
-from app.services.agents.site_agent_service import SiteAgentService
+from app.services.agents.site_agent_service import TouristAgentService
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ async def get_site_plan(request: Request):
             plan_data["companion_count"] = []
 
         # prompt가 존재하면 plan_data에 추가 (혹은 서비스에 별도로 전달)
-        travel_service = SiteAgentService()
+        travel_service = TouristAgentService()
         result = await travel_service.create_tourist_plan(plan_data, prompt=prompt)
 
         return {

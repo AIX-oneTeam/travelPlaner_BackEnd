@@ -10,8 +10,8 @@ import os
 
 # 도구 임포트 (site_tool.py에 구현된 네이버 도구들)
 from app.services.agents.tools.site_tool import (
-    NaverWebSearchTool,
-    NaverImageSearchTool,
+    NaverTouristWebSearchTool,
+    NaverTouristImageSearchTool,
 )
 
 # 환경 변수 로드
@@ -34,8 +34,8 @@ class TouristAgentService:
         """서비스 초기화"""
         self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # 네이버 웹/이미지 검색 도구 초기화
-        self.web_search_tool = NaverWebSearchTool()
-        self.image_search_tool = NaverImageSearchTool()
+        self.web_search_tool = NaverTouristWebSearchTool()
+        self.image_search_tool = NaverTouristImageSearchTool()
         self.agents = self._create_agents()
 
     def _process_input(
