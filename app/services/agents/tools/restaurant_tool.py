@@ -326,14 +326,17 @@ class NaverImageSearchTool(BaseTool):
             print(f"네이버 이미지 검색 오류: {str(e)}")
             return "https://via.placeholder.com/300x200?text=Error"
 
-    async def _arun(self, restaurant_list: List[str]) -> Dict[str, str]:
+    async def _arun(self, restaurant_list: List[Dict]) -> Dict[str, str]:
+        # 딕셔너리 리스트를 문자열 리스트로 변환
+        restaurant_names = [restaurant["kor_name"] for restaurant in restaurant_list]
+
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurant_list:
+            for restaurant in restaurant_names:
                 results[restaurant] = await self.fetch(session, restaurant)
         return results
 
-    def _run(self, restaurant_list: List[str]) -> Dict[str, str]:
+    def _run(self, restaurant_list: List[Dict]) -> Dict[str, str]:
         return asyncio.run(self._arun(restaurant_list))
 
 
@@ -393,9 +396,9 @@ class KakaoLocalSearchTool(BaseTool):
                             "phone_number": place.get("phone", ""),
                             # "category_name": place.get("category_name", ""),
                         }
-                        print(
-                            f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
-                        )
+                        # print(
+                        #     f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
+                        # )
                         return result
 
             except Exception as e:
