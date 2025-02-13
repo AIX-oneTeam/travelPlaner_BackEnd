@@ -24,7 +24,7 @@ async def find_plan_spots(plan_id: int, session: AsyncSession):
     # PlanSpotMap과 Spot 데이터 직렬화
     for item in plan_spots_with_spot_info["detail"]:
         item["plan_spot"] = serialize_time(
-            item["plan_spot"], ["spot_time"]
+            item["plan_spot"], ["spot_time", "created_at", "updated_at"]
         )
         item["spot"] = serialize_time(
             item["spot"], ["created_at", "updated_at"]

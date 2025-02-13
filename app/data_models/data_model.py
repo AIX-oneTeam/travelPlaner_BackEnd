@@ -160,4 +160,4 @@ class Checklist(SQLModel, table=True):
         sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
     )
 
-    plan: Plan = Relationship(back_populates="checklist")
+    plan: Plan = Relationship(back_populates="checklists")

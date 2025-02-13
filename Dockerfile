@@ -9,7 +9,6 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-
 # 최종 빌드
 FROM python:3.12-slim
 
