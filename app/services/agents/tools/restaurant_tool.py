@@ -5,8 +5,7 @@ import datetime
 import os
 import re
 from crewai.tools import BaseTool
-from typing import List, Dict, Type
-from pydantic import BaseModel, create_model
+from typing import List, Dict
 from dotenv import load_dotenv
 
 
@@ -15,7 +14,7 @@ load_dotenv()
 GOOGLE_MAP_API_KEY = os.getenv("GOOGLE_MAP_API_KEY")
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
-KAKAO_MAP_API_KEY = os.getenv("KAKAO_MAP_API_KEY")
+KAKAO_LOCAL_API_KEY = os.getenv("KAKAO_LOCAL_API_KEY")
 
 
 def clean_query(query: str) -> str:
@@ -191,15 +190,29 @@ class RestaurantBasicSearchTool(BaseTool):
             return candidates
 
         try:
-            # 1차 필터링: 평점 4.0 이상 & 리뷰 500개 이상
+            # 1차: 대도시 기준
             all_candidates = await fetch_places(4.0, 500)
 
-            # 첫 번째 결과가 2개 미만이면 기준 완화 (외곽 지역 판단)
-            if len(all_candidates) < 2:
+            # 결과가 15개 미만이면 중소도시 기준으로 추가 검색
+            if len(all_candidates) < 15:
                 print(
-                    "첫 페이지 결과가 2개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 100개 이상) 후 재요청"
+                    "결과가 15개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 200개 이상)로 추가 검색"
                 )
-                all_candidates = await fetch_places(3.5, 100)
+                additional_candidates = await fetch_places(3.5, 200)
+                # 새로운 결과를 기존 결과에 추가
+                all_candidates.extend(
+                    [c for c in additional_candidates if c not in all_candidates]
+                )
+
+                # 여전히 15개 미만이면 외곽/지방 기준으로 추가 검색
+                if len(all_candidates) < 15:
+                    print(
+                        "결과가 여전히 15개 미만 → 필터링 조건 추가 완화 (평점 3.3 이상, 리뷰 100개 이상)로 추가 검색"
+                    )
+                    additional_candidates = await fetch_places(3.3, 100)
+                    all_candidates.extend(
+                        [c for c in additional_candidates if c not in all_candidates]
+                    )
 
             print(f"최종 수집된 맛집 수: {len(all_candidates)}")
         except Exception as e:
@@ -331,7 +344,7 @@ class KakaoLocalSearchTool(BaseTool):
 
     async def fetch(self, session: aiohttp.ClientSession, name: str, location: str):
         url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-        headers = {"Authorization": f"KakaoAK {KAKAO_MAP_API_KEY}"}
+        headers = {"Authorization": f"KakaoAK {KAKAO_LOCAL_API_KEY}"}
 
         # 검색어 변형 리스트 생성 (location 포함)
         search_queries = [
