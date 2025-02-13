@@ -6,7 +6,6 @@ from typing import List, Dict, Optional
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
-from dataclasses import dataclass
 import os
 from app.services.agents.tools.restaurant_tool import (
     GeocodingTool,
@@ -15,14 +14,6 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
-
-
-@dataclass
-class ProcessResult:
-    message: str
-    plan: dict
-    spots: List[dict]
-
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
