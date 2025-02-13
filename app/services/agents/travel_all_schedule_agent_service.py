@@ -39,6 +39,7 @@ class TravelScheduleAgentService:
                 tools=[self.route_tool],
                 llm=self.llm,
                 verbose=True,
+                max_iter=1,
             )
         }
 

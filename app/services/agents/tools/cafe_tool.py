@@ -1,3 +1,246 @@
+import json
+import httpx
+import asyncio
+from dotenv import load_dotenv
+from crewai.tools import BaseTool
+from typing import List
+import os
+import requests
+from bs4 import BeautifulSoup
+import json
+import re
+import emoji
+    
+load_dotenv()
+
+# 네이버 API 관련 환경변수
+AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
+AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
+
+def create_search_query(region: str) -> str:
+    # 먼저 입력 문자열에 "-"가 포함되어 있으면 "-"로, 없으면 공백을 기준으로 분리합니다.
+    if "-" in region:
+        parts = [p.strip() for p in region.split("-")]
+    else:
+        parts = region.split(maxsplit=1)
+        parts = [p.strip() for p in parts]
+
+    # 시/도명을 단축하는 함수 (특정 도/시의 경우 별도 매핑)
+    def shorten_province(prov: str) -> str:
+        # 추가 매핑 규칙
+        if prov == "충청북도":
+            return "충북"
+        if prov == "충청남도":
+            return "충남"
+        if prov == "경상남도":
+            return "경남"
+        if prov == "경상북도":
+            return "경북"
+        if prov == "세종특별자치시":
+            return "세종"
+        if prov == "전라남도":
+            return "전남"
+        # 기본 처리
+        if "특별자치도" in prov:
+            return prov.replace("특별자치도", "")
+        elif "광역시" in prov:
+            return prov.replace("광역시", "")
+        elif prov.endswith("도"):
+            return prov[:-1]
+        elif prov.endswith("시"):
+            return prov[:-1]
+        else:
+            return prov
+
+    # 두번째 지역명(구/군/시)을 가공하는 함수
+    def process_district(district: str, prov_short: str) -> str:
+        # district가 '구', '군', '시'로 끝나면 마지막 글자 제거한 후보(candidate) 생성
+        if district.endswith(("구", "군", "시")):
+            candidate = district[:-1]
+            # 예외: district가 province_short + "시"인 경우 원본 그대로 사용
+            if district.endswith("시") and district == prov_short + "시":
+                return district
+            # 후보가 2글자면 단축해서 사용, 그렇지 않으면 원래 이름 사용
+            if len(candidate) == 2:
+                return candidate
+            else:
+                return district
+        else:
+            return district
+
+    # 첫번째 부분(시/도) 처리
+    province_str = parts[0]
+    province_short = shorten_province(province_str)
+
+    # 두번째 부분(구/군/시)이 있으면 처리
+    if len(parts) > 1:
+        district_str = parts[1]
+        # 부산의 경우, district가 이미 province_short로 시작하면 district만 사용
+        if province_str == "부산광역시" and district_str.startswith(province_short):
+            result = f"{district_str} 카페"
+        else:
+            district_processed = process_district(district_str, province_short)
+            result = f"{province_short} {district_processed} 카페"
+    else:
+        result = f"{province_short} 카페"
+        
+    return result
+
+
+class NaverBlogSearchTool(BaseTool):
+    name: str = "NaverBlogSearch"
+    description: str = "네이버 웹 검색 API를 사용해 카페 검색"
+
+    async def _arun(self, main_location: str) -> str:
+        if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
+            return "[NaverWebSearchTool] 네이버 API 자격 증명이 없습니다."
+        
+        query = create_search_query(main_location)
+        url = "https://openapi.naver.com/v1/search/blog.json"
+        headers = {
+            "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
+            "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
+        }
+        params = {"query": query, "display": 30, "start": 1, "sort": "sim"}
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+            items = data.get("items", [])
+            if not items:
+                return f"[NaverWebSearchTool] '{query}' 검색 결과 없음."
+            results = []
+            print(len(items))
+            for item in items:
+                title = item.get("title", "")
+                link = item.get("link", "")
+                desc = item.get("description", "")
+                # postdate = item.get("postdate", "") # 작성일자
+                results.append(f"제목: {title}\n링크: {link}\n설명: {desc}\n")
+            return "\n".join(results)
+        except Exception as e:
+            return f"[NaverWebSearchTool] 에러: {str(e)}"
+
+    def _run(self, query: str) -> str:
+        return asyncio.run(self._arun(query))
+
+class NaverBlogCralwerTool(BaseTool):
+    name: str = "NaverBlogCralwer"
+    description: str = "네이버 블로그를 크롤링해 카페 정보 추출"
+
+    async def _fetch_blog_data(self, url: str) -> str:
+        url = url.replace('https://blog.naver.com', 'https://m.blog.naver.com')
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+            "Referer": "https://m.blog.naver.com/"
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            a_tag = soup.find("a", class_="se-map-info __se_link")
+            if not a_tag:
+                # print("지도 url이 없는 포스팅입니다. 다른 포스팅을 다시 검색하세요")
+                return None
+
+            data_module_content = a_tag.get("data-linkdata")
+            data = json.loads(data_module_content)
+            place_info={}
+            place_info["placeId"] = data.get("placeId","")
+            place_info["name"] = data.get("name","")
+            place_info["address"] = data.get("address","")
+            place_info["latitude"] = data.get("latitude","")
+            place_info["longitude"] = data.get("longitude","")
+            place_info["tel"] = data.get("tel","")                     
+            place_info["url"] = data.get("bookingUrl","")                     
+
+            return place_info
+
+        except Exception as e:
+            return f"[cafe_tool:NaverBlogCralwer] 에러: {str(e)}"
+
+    async def _arun(self, urls: List[str]) -> str:
+        """여러 개의 블로그 URL을 받아 카페 정보를 수집"""
+        tasks = [self._fetch_blog_data(url) for url in urls if url]
+        results = await asyncio.gather(*tasks)
+
+        # 오류 메시지 제외하고 유효한 데이터만 반환
+        cafes = [res for res in results if res and isinstance(res, dict) and "error" not in res]
+
+        return json.dumps(cafes, indent=4, ensure_ascii=False)
+
+    def _run(self, urls: List[str]) -> str:
+        """동기 함수에서 실행 (urls는 블로그 URL 리스트)"""
+        return asyncio.run(self._arun(urls))
+    
+class NaverReviewCralwerTool(BaseTool):
+    name: str = "NaverReviewCralwer"
+    description: str = "네이버 리뷰를 크롤링해 카페 후기 추출"
+
+    async def _fetch_review_data(self, placeId: str) -> str:
+        url = f"https://m.place.naver.com/restaurant/{placeId}/review/visitor?reviewSort=recent"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+            "Referer": "https://m.place.naver.com/"
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            reviews = soup.find_all("div", class_="pui__vn15t2")
+            if not reviews:
+                return f"[cafe_tool:NaverReviewCralwer] 에러: 리뷰를 찾을 수 없습니다.]"
+
+            thumbnail = soup.find("a", class_="place_thumb").find("img").get("src")
+            if not thumbnail:
+                return f"[cafe_tool:NaverReviewCralwer] 에러: 이미지를 찾을 수 없습니다.]"
+
+            reviews_list = [emoji.replace_emoji(review.text, replace='') for review in reviews]
+            return {
+                "placeId": placeId,
+                "image_url": thumbnail,
+                "reviews": reviews_list
+            }
+        except Exception as e:
+            return f"[cafe_tool:NaverReviewCralwer] 에러: {str(e)}"
+
+    async def _arun(self, placeIds: List[str]) -> str:
+        """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
+        tasks = [self._fetch_review_data(placeId) for placeId in placeIds]
+        results = await asyncio.gather(*tasks)
+
+        # 오류 메시지 제외하고 유효한 데이터만 반환
+        cafes = [res for res in results if "error" not in res]
+
+        return json.dumps(cafes, indent=4, ensure_ascii=False)
+
+    def _run(self, placeIds: List[str]) -> str:
+        """동기 함수에서 실행 (queryplaceIds는 장소 placeId 리스트)"""
+        return asyncio.run(self._arun(placeIds))
+        
+
+# naver_tool = NaverWebSearchTool()
+# result = await naver_tool._arun("강남 카페")
+# print(result)
+
+# url_lists = ["https://blog.naver.com/moonyo1002/223740338163","https://blog.naver.com/bluerabbit_b/223740394460","https://blog.naver.com/pkj5456/223689489478"]
+# blog_tool = NaverBlogCralwerTool()
+# result = await blog_tool._arun(url_lists)
+# print(result)
+
+# placeIds = ["1785877248", "1614878009","1158509033"]
+# review_tool = NaverReviewCralwerTool()
+# result = await review_tool._arun(placeIds)
+# print(result)
+
+
+#---아래부터 사용하지 않는 툴-------------------------------------------------------------
+
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -241,174 +484,6 @@ class GetCafeListTool(BaseTool):
                 "status": "error",
                 "message": str(e)
             })        
-
-import json
-import re
-import httpx
-import asyncio
-from dotenv import load_dotenv
-from crewai.tools import BaseTool
-from typing import List
-import os
-import requests
-from bs4 import BeautifulSoup
-import json
-import re
-import emoji
-    
-load_dotenv()
-
-# 네이버 API 관련 환경변수
-AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
-AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
-
-# 1. 강남 카페 느좋
-# 2. 강남 카페 내돈내산
-# 3. 강남 카페 비추(제외)
-
-class NaverWebSearchTool(BaseTool):
-    name: str = "NaverWebSearch"
-    description: str = "네이버 웹 검색 API를 사용해 카페 검색"
-
-    async def _arun(self, query: str) -> str:
-        if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
-            return "[NaverWebSearchTool] 네이버 API 자격 증명이 없습니다."
-        url = "https://openapi.naver.com/v1/search/blog.json"
-        headers = {
-            "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
-            "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
-        }
-        params = {"query": query, "display": 30, "start": 1, "sort": "sim"}
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, headers=headers, params=params)
-                resp.raise_for_status()
-                data = resp.json()
-            items = data.get("items", [])
-            if not items:
-                return f"[NaverWebSearchTool] '{query}' 검색 결과 없음."
-            results = []
-            print(len(items))
-            for item in items:
-                title = item.get("title", "")
-                link = item.get("link", "")
-                desc = item.get("description", "")
-                # postdate = item.get("postdate", "") # 작성일자
-                results.append(f"제목: {title}\n링크: {link}\n설명: {desc}\n")
-            return "\n".join(results)
-        except Exception as e:
-            return f"[NaverWebSearchTool] 에러: {str(e)}"
-
-    def _run(self, query: str) -> str:
-        return asyncio.run(self._arun(query))
-
-class NaverBlogCralwerTool(BaseTool):
-    name: str = "NaverBlogCralwer"
-    description: str = "네이버 블로그를 크롤링해 카페 정보 추출"
-
-    async def _fetch_blog_data(self, url: str) -> str:
-        url = url.replace('https://blog.naver.com', 'https://m.blog.naver.com')
-        headers = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-            "Referer": "https://m.blog.naver.com/"
-        }
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, headers=headers)
-                resp.raise_for_status()
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-            a_tag = soup.find("a", class_="se-map-info __se_link")
-            if not a_tag:
-                # print("지도 url이 없는 포스팅입니다. 다른 포스팅을 다시 검색하세요")
-                return None
-
-            data_module_content = a_tag.get("data-linkdata")
-            data = json.loads(data_module_content)
-            place_info={}
-            place_info["placeId"] = data.get("placeId","")
-            place_info["name"] = data.get("name","")
-            place_info["address"] = data.get("address","")
-            place_info["latitude"] = data.get("latitude","")
-            place_info["longitude"] = data.get("longitude","")
-            place_info["tel"] = data.get("tel","")                     
-            place_info["url"] = data.get("bookingUrl","")                     
-
-            return place_info
-
-        except Exception as e:
-            return f"[cafe_tool:NaverBlogCralwer] 에러: {str(e)}"
-
-    async def _arun(self, urls: List[str]) -> str:
-        """여러 개의 블로그 URL을 받아 카페 정보를 수집"""
-        tasks = [self._fetch_blog_data(url) for url in urls if url]
-        results = await asyncio.gather(*tasks)
-
-        # 오류 메시지 제외하고 유효한 데이터만 반환
-        cafes = [res for res in results if res and isinstance(res, dict) and "error" not in res]
-
-        return json.dumps(cafes, indent=4, ensure_ascii=False)
-
-    def _run(self, urls: List[str]) -> str:
-        """동기 함수에서 실행 (urls는 블로그 URL 리스트)"""
-        return asyncio.run(self._arun(urls))
-    
-class NaverReviewCralwerTool(BaseTool):
-    name: str = "NaverReviewCralwer"
-    description: str = "네이버 리뷰를 크롤링해 카페 후기 추출"
-
-    async def _fetch_review_data(self, placeId: str) -> str:
-        url = f"https://m.place.naver.com/restaurant/{placeId}/review/visitor?reviewSort=recent"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-            "Referer": "https://m.place.naver.com/"
-        }
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, headers=headers)
-                resp.raise_for_status()
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-            reviews = soup.find_all("div", class_="pui__vn15t2")
-            if not reviews:
-                return f"[cafe_tool:NaverReviewCralwer] 에러: {str(e)}"
-
-            reviews_list = [emoji.replace_emoji(review.text, replace='') for review in reviews]
-            return {
-                "placeId": placeId,
-                "reviews": reviews_list
-            }
-        except Exception as e:
-            return f"[cafe_tool:NaverReviewCralwer] 에러: {str(e)}"
-
-    async def _arun(self, placeIds: List[str]) -> str:
-        """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
-        tasks = [self._fetch_review_data(placeId) for placeId in placeIds]
-        results = await asyncio.gather(*tasks)
-
-        # 오류 메시지 제외하고 유효한 데이터만 반환
-        cafes = [res for res in results if "error" not in res]
-
-        return json.dumps(cafes, indent=4, ensure_ascii=False)
-
-    def _run(self, placeIds: List[str]) -> str:
-        """동기 함수에서 실행 (queryplaceIds는 장소 placeId 리스트)"""
-        return asyncio.run(self._arun(placeIds))
-        
-
-# naver_tool = NaverWebSearchTool()
-# result = await naver_tool._arun("강남 카페")
-# print(result)
-
-# url_lists = ["https://blog.naver.com/moonyo1002/223740338163","https://blog.naver.com/bluerabbit_b/223740394460","https://blog.naver.com/pkj5456/223689489478"]
-# blog_tool = NaverBlogCralwerTool()
-# result = await blog_tool._arun(url_lists)
-# print(result)
-
-# placeIds = ["1785877248", "1614878009","1158509033"]
-# review_tool = NaverReviewCralwerTool()
-# result = await review_tool._arun(placeIds)
-# print(result)
 
 
 from crewai.tools import BaseTool
