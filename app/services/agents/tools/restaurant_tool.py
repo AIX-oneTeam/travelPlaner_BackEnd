@@ -5,8 +5,7 @@ import datetime
 import os
 import re
 from crewai.tools import BaseTool
-from typing import List, Dict, Type
-from pydantic import BaseModel, create_model
+from typing import List, Dict
 from dotenv import load_dotenv
 
 
@@ -15,7 +14,7 @@ load_dotenv()
 GOOGLE_MAP_API_KEY = os.getenv("GOOGLE_MAP_API_KEY")
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
-KAKAO_MAP_API_KEY = os.getenv("KAKAO_MAP_API_KEY")
+KAKAO_LOCAL_API_KEY = os.getenv("KAKAO_LOCAL_API_KEY")
 
 
 def clean_query(query: str) -> str:
@@ -331,7 +330,7 @@ class KakaoLocalSearchTool(BaseTool):
 
     async def fetch(self, session: aiohttp.ClientSession, name: str, location: str):
         url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-        headers = {"Authorization": f"KakaoAK {KAKAO_MAP_API_KEY}"}
+        headers = {"Authorization": f"KakaoAK {KAKAO_LOCAL_API_KEY}"}
 
         # 검색어 변형 리스트 생성 (location 포함)
         search_queries = [
