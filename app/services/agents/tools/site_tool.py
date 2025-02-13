@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 import re
 import httpx
+from typing import Union
 
 # 환경 변수 로드
 load_dotenv()
@@ -105,7 +106,10 @@ class NaverTouristImageSearchTool(BaseTool):
         "네이버 이미지 검색 API를 사용해 관광지의 대표 이미지를 검색합니다."
     )
 
-    async def _arun(self, query: str) -> str:
+    async def _arun(self, query: Union[str, dict]) -> str:
+
+        if isinstance(query, dict):
+            query = query.get("description", "")
         if not query.strip():
             return ""
         if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
@@ -142,5 +146,5 @@ class NaverTouristImageSearchTool(BaseTool):
             print(f"관광지 이미지 검색 오류: {e}")
             return "https://via.placeholder.com/300x200?text=Error"
 
-    def _run(self, query: str) -> str:
+    def _run(self, query: Union[str, dict]) -> str:
         return asyncio.run(self._arun(query))
