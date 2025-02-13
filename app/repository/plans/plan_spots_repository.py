@@ -4,7 +4,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 async def save_plan_spots (plan_id:int, spot_id:int, order:int, day_x:str, spot_time:str, session: AsyncSession):
     try:
-        await session.add(PlanSpotMap(
+        session.add(PlanSpotMap(
             plan_id=plan_id,
             spot_id=spot_id,
             order=order,

@@ -64,11 +64,15 @@ class Plan(SQLModel, table=True):
     companion_count: Optional[str] = None
     concepts: Optional[str] = Field(default=None, max_length=255)
     member_id: int = Field(foreign_key="member.id")
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+    )
+    updated_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+    )
     
     member: Member = Relationship(back_populates="plans")
-    checklist: Optional["Checklist"] = Relationship(back_populates="plan", cascade_delete=True)
+    checklists: Optional[List["Checklist"]]= Relationship(back_populates="plan", cascade_delete=True)
     plan_spots: List["PlanSpotMap"] = Relationship(back_populates="plan", cascade_delete=True)
 
 class Spot(SQLModel, table=True):
@@ -118,6 +122,12 @@ class PlanSpotMap(SQLModel, table=True):
     day_x: int = Field(...)
     order: int = Field(...)
     spot_time: Optional[time] = Field(default=None)  # 시간 필드 추가
+    created_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+    )
+    updated_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+    )
 
     plan: Plan = Relationship(back_populates="plan_spots")
     spot: Spot = Relationship(back_populates="plan_spots")
@@ -141,7 +151,13 @@ class Checklist(SQLModel, table=True):
     __tablename__ = "checklist"
     id:  int = Field(primary_key=True)
     plan_id: int = Field(foreign_key="plan.id")
-    text: Optional[str] = Field(default=None, max_length=255)
+    item: Optional[str] = Field(default=None, max_length=255)
     checked: Optional[bool] = None
+    created_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+    )
+    updated_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+    )
 
-    plan: Plan = Relationship(back_populates="checklist")
+    plan: Plan = Relationship(back_populates="checklists")

@@ -11,6 +11,7 @@ from app.services.agents.site_agent_service import TouristAgentService
 from app.services.agents.accommodation_agent_4 import run
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
+from app.services.agents.accommodation_agent_service2 import AccommodationAgentService
 
 router = APIRouter()
 
@@ -58,7 +59,8 @@ async def generate_plan(
             cafe_agent_service = CafeAgentService()
             tasks["cafe"] = cafe_agent_service.create_recommendation(input_dict)
         if "accommodation" in agent_type:
-            tasks["accommodation"] = run(input_dict)
+            accommocation_agent_service = AccommodationAgentService()
+            tasks["accommodation"] = accommocation_agent_service.create_recommendation(input_dict)
 
         # 비동기 작업 병렬 실행 및 결과 매핑
         results = await asyncio.gather(*tasks.values())

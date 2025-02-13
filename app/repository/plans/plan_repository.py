@@ -53,6 +53,7 @@ async def save_plan(plan: Plan, session: AsyncSession, plan_id: int = None):
 async def get_plan(plan_id: int, session: AsyncSession):
     try:
         plan = await session.get(Plan, plan_id)
+        print("💡[ plan_repository ] get_plan() 호출 : ", plan)
         return plan if plan is not None else None
 
     except Exception as e:

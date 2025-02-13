@@ -166,6 +166,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.get("/")
 async def root():
+    # 데이터베이스 초기화
+    # await init_table_by_SQLModel()
     return HTMLResponse(
         """
         <html lang="ko">
@@ -232,5 +234,4 @@ app.include_router(cafe_router, prefix="/agents", tags=["agents"])
 app.include_router(checklist_router, prefix="/checklist", tags=["checklists"])
 
 
-# 데이터베이스 초기화
-# init_table_by_SQLModel()
+

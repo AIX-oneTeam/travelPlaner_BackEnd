@@ -1,4 +1,4 @@
-from app.dtos.checklist_models import ChecklistCreate
+from app.dtos.checklist_models import ChecklistCreate, ChecklistResponse
 from typing import List
 from fastapi import HTTPException
 from app.data_models.data_model import Checklist
@@ -8,7 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 async def save_checklist_item(checklist_items: List[ChecklistCreate], session: AsyncSession) :
     try:
         saved_items = []
-        for item in checklist_items :
+        for item in checklist_items:
             checklist_item = Checklist(plan_id=item.plan_id, text=item.text, checked=item.checked)
             await session.add(checklist_item)
             await session.commit()
@@ -17,6 +17,7 @@ async def save_checklist_item(checklist_items: List[ChecklistCreate], session: A
         return saved_items
     except Exception as e:
         print(f"Error in save_checklist_item repository: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 
@@ -27,7 +28,8 @@ async def read_checklist_item(plan_id: int, session: AsyncSession):
         got_checklist = result.filter(Checklist.plan_id == plan_id).all()
         return got_checklist
     except Exception as e:
-        print(f"Error in read_checklist_item reposotiry: {e}")
+        print(f"Error in read_checklist_item repository: {e}")
+        raise HTTPException(status_code=500, detail="데이터베이스 조회 중 오류가 발생했습니다.")
 
 
 #삭제

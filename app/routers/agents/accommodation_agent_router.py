@@ -1,46 +1,47 @@
-from pydantic import BaseModel
-from typing import List, Dict, Any
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
-import asyncio
-from app.services.agents.accommodation_agent_4 import run
-import json
+from app.services.agents.accommodation_agent_service2 import AccommodationAgentService
 
 router = APIRouter()
 
-class UserInputData(BaseModel):
-    location: str
-    check_in_date: str
-    check_out_date: str
-    age_group: int
-    adults: int
-    children: int
-    keyword: List[str]
-    prompt : str  = None   #프롬프트는 수정에서만 사용
-  
+class Companion(BaseModel):
+    label: str
+    count: int
 
-@router.post("/accommodations")
-async def get_accommodations(user_input: UserInputData):
-    """
-    숙소 추천 API
-    """
+class TravelPlanRequest(BaseModel):
+    ages: str
+    companion_count: List[Companion]
+    start_date: str
+    end_date: str
+    concepts: List[str]
+    main_location: str
+    prompt: Optional[str] = None
+
+
+@router.post("/accommodation")
+async def get_accommodation(user_input: TravelPlanRequest ):
+    """숙소 추천 엔드포인트"""
+    
+    print("프런트에서 데이터 받음")
+    
     try:
-        crew_output = await asyncio.to_thread(
-            run,
-            location=user_input.location,
-            check_in_date=user_input.check_in_date,
-            check_out_date=user_input.check_out_date,
-            age_group=user_input.age_group,
-            adults=user_input.adults,
-            children=user_input.children,
-            keyword=user_input.keyword,
-            prompt =user_input.prompt
-        )
+        # model_dump()를 사용하여 입력 데이터를 dict 형태로 변환
+        input_data = user_input.model_dump()
+        try:
+            result = await AccommodationAgentService.create_recommendation(input_data)
+        except Exception as e:
+            print(f"[ERROR] accommodationagentservie create_recommendation() 오류 발생: {e}")
+            raise HTTPException(status_code=500, detail="추천 생성 중 오류 발생")
 
-        # json 문자열을 객체로 변환
-        parsed_output = json.loads(crew_output)
-        
-        
-        return {"result": parsed_output}
-        
+        print("accommodation_response:", result)
+
+        return {
+            "status": "success",
+            "message": "숙소 리스트가 생성되었습니다.",
+            "data": result,
+        }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"[숙소 추천 API] 에러: {str(e)}")
+        print(f"[ERROR] 숙소 추천 요청 처리 중 오류 발생: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

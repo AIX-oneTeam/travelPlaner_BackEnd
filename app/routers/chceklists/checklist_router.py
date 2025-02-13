@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.services.checklists.checklist_service import save_checklist, read_checklist, delete_checklist
-from app.dtos.checklist_models import ChecklistListCreate, ChecklistResponse,PlanId
+from app.dtos.checklist_models import ChecklistListCreate, ChecklistResponse,PlanId, ChecklistCreate
 from typing import List
 from app.repository.db import get_async_session
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("", response_model=List[ChecklistResponse])
 async def add_checklist(checklist_list: ChecklistListCreate, session: AsyncSession = Depends(get_async_session)):
     try:
-        saved_checklist = await save_checklist(checklist_list.items, session)
+        saved_checklist = await save_checklist(checklist_list, session)
         return saved_checklist
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving checklist: {e}")
