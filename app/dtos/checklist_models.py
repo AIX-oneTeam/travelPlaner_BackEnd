@@ -4,8 +4,7 @@ from typing import List
 # 체크리스트 항목 단일 모델
 class Checklist(BaseModel):
     plan_id: int
-    id:int
-    text: str
+    item: str
     checked: int
 
 # 여러 체크리스트 항목을 받을 때 사용

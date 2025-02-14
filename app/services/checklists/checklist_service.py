@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 async def save_checklist(checklist_items: List[Checklist], session: AsyncSession):
     try:
         saved_checklist_items = await save_checklist_item(checklist_items, session)
+        print(f'여긴 서비스 ===============================저장 중 ==============================={checklist_items}' )
         return [Checklist.model_validate(item.dict()) for item in saved_checklist_items]
     except Exception as e:
         print(f"Error in save_checklist service: {e}")
@@ -15,7 +16,8 @@ async def save_checklist(checklist_items: List[Checklist], session: AsyncSession
 async def read_checklist(plan_id : int, session:AsyncSession):
     try: 
         got_checklist = await read_checklist_item(plan_id, session)
-        return [Checklist.model_validate(item) for item in got_checklist]  #각 item을 Checklist 모델의 인스턴스로 변환합
+        print(f'여긴 서비스 =============================================================={got_checklist}' )
+        return got_checklist  #각 item을 Checklist 모델의 인스턴스로 변환합
     except Exception as e:
         print(f"Error in read_checklis service: {e}")
         return[]
