@@ -1,16 +1,15 @@
 import traceback
-from typing import List
 from crewai import Agent, Task, Crew, LLM, Process
 from app.dtos.spot_models import spots_pydantic
 from app.utils.calculate_trip_days import calculate_trip_days
-from app.services.agents.tools.cafe_tool import NaverBlogSearchTool,NaverBlogCralwerTool,NaverReviewCralwerTool
-from app.services.agents.tools.restaurant_tool import NaverImageSearchTool
-from typing import List, Dict, Optional
+from app.services.agents.tools.cafe_tool import NaverBlogSearchTool,NaverBlogCralwerTool,NaverReviewCralwerTool, NaverBusinessInfoTool
+from typing import Dict, Optional
 import os
 from dotenv import load_dotenv
+from app.utils.time_check import time_check
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-        
+            
 class CafeAgentService:
     """
     카페 에이전트 인스턴스를 싱글톤 패턴으로 관리하는 클래스
@@ -31,17 +30,20 @@ class CafeAgentService:
         self.get_cafe_list_tool = NaverBlogSearchTool()
         self.get_cafe_info_tool = NaverBlogCralwerTool()
         self.get_cafe_review_tool = NaverReviewCralwerTool()
-        self.get_cafe_image_tool = NaverImageSearchTool()
+        self.get_cafe_business_info_tool = NaverBusinessInfoTool()
         self.agents = self._create_agents()
         self.tasks = self._create_tasks()
         
-        if "researcher_task" in self.tasks and "reviewr_task" in self.tasks:
-            self.tasks["reviewr_task"].context = [self.tasks["researcher_task"]]
+        if "collector_task" in self.tasks and "researcher" in self.tasks:
+            self.tasks["researcher_task"].context = [self.tasks["collector_task"]]
+            
+        if "researcher_task" in self.tasks and "reviewer_task" in self.tasks:
+            self.tasks["reviewer_task"].context = [self.tasks["researcher_task"]]
     
-        if "researcher_task" in self.tasks and "reviewr_task" in self.tasks and "Decider_task" in self.tasks:
-            self.tasks["Decider_task"].context = [self.tasks["researcher_task"], self.tasks["reviewr_task"]]
+        if "researcher_task" in self.tasks and "Decider_task" in self.tasks:
+            self.tasks["Decider_task"].context = [self.tasks["reviewer_task"]]
         
-        self.crew = Crew(agents=list(self.agents.values()), tasks=list(self.tasks.values()),verbose=True)  
+        self.crew = Crew(agents=list(self.agents.values()), tasks=list(self.tasks.values()),process=Process.sequential, verbose=True)  
 
     def _create_agents(self) -> Dict[str, Agent]:
         return {
@@ -60,9 +62,9 @@ class CafeAgentService:
             ),
             "researcher" : Agent(
                 role="카페 기본 정보 수집 및 위치 검증가",
-                goal="카페의 기본 정보를 수집하고 고객의 여행지역에 없는 카페들은 삭제합니다",
+                goal="카페의 기본 정보를 수집하고 고객의 여행 지역에 위치하지 않은 카페는 삭제합니다",
                 backstory="""
-                블로그에서 카페의 기본 정보를 수집하고, 고객의 여행 지역에 없는 카페의 정보는 리스트에서 삭제해주세요. 
+                블로그에서 카페의 기본 정보를 수집하고, 고객의 여행 지역에 위치하지 않은 카페는 리스트에서 삭제해주세요. 
                 """,
                 tools=[self.get_cafe_info_tool],
                 allow_delegation=False,
@@ -71,11 +73,11 @@ class CafeAgentService:
                 verbose=True,
                 stop_on_failure=True
             ),
-            "reviewr" : Agent(
+            "reviewer" : Agent(
                 role="카페의 리뷰를 분석하고, 카페의 특징을 추출합니다.",
                 goal="카페의 리뷰를 분석하고, 카페의 주요 특징과 분위기, 시그니처 메뉴를 추출합니다.",
                 backstory="""
-                카페의 최신 후기를 읽고, 카페의 주요 특징을 분석합니다.               
+                카페의 최신 후기를 읽고, 카페의 주요 특징을 분석합니다. 리뷰를 읽고 카페가 아니라면 리스트에서 삭제해주세요.               
                 """,
                 tools=[self.get_cafe_review_tool],
                 allow_delegation=False,
@@ -85,12 +87,12 @@ class CafeAgentService:
                 stop_on_failure=True
             ),
             "Decider" : Agent(
-                role="카페의 특징을 사용",
+                role="고객의 요구사항을 가장 많이 반영한 카페 선정",
                 goal="고객의 여행지에서 인기있고, 고객의 선호도를 반영한 카페를 선정합니다.",
                 backstory="""
                 고객에게 가장 적합한 카페를 선별하고 추천해줍니다.
                 """,
-                # tools=[self.get_cafe_image_tool],
+                tools=[self.get_cafe_business_info_tool],
                 allow_delegation=False,
                 max_iter=1,
                 llm=self.llm,
@@ -103,13 +105,16 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. tool 사용시 "{main_location}"을 입력 값으로 사용하세요.
-                2. 중복된 카페는 삭제해주세요
-                3. "비추' 등의 부정적인 의견이 있는 글은 삭제해주세요
-                4. 카페 추천 또는 카페 후기가 아닌 글은 삭제해주세요 
+                2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요.
+                3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
+                4. 포스팅 횟수가 동일한 카페들은 "비추' 등의 부정적인 의견이 적은 포스팅부터 먼저 나열해주세요. 
+                5. 카페 추천 또는 카페 후기가 아닌 글은 삭제해주세요 
                 """,
                 expected_output="""
                 - 카페 이름
-                - 네이버 블로그 url
+                - 포스팅 횟수
+                - 카페 설명
+                - 블로그 url (포스팅 횟수 만큼)
                 """,        
                 agent=self.agents["collector"],
             ),
@@ -117,50 +122,72 @@ class CafeAgentService:
                 description="""
                 1. collector가 조사한 블로그들의 url만 리스트로 묶어 tool의 input으로 사용하세요. url은 None값이나 null이면 안됩니다. 
                 2. tool의 output을 보고 address가 {main_location}에 위치하지 않은 카페는 삭제해주세요.
+                3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
+                4. 포스팅 횟수가 동일한 카페들은 "비추' 등의 부정적인 의견이 적은 포스팅부터 먼저 나열해주세요. 
                 """,
-                expected_output="""
-                tool의 output에서 {main_location}에 위치하지 않은 카페만 삭제하고 그대로 반환해주세요.
-                """,        
-                agent=self.agents["researcher"],
-            ),
-            "reviewr_task" : Task(
-                description="""
-                1. researcher가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
-                2. researcher가 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
-                """,
-                expected_output="""
-                중복되지 않는 카페 리스트를 반환해주세요.
+                expected_output="""             
                 - 이름
-                - 특징(분위기, 시그니처 메뉴, 사람들이 공통 적으로 좋아했던 특징, 리뷰 요약)
+                - 포스팅 횟수
+                - 카페 설명
+                - placeId
                 - 주소
                 - 이미지url
                 - 위도
                 - 경도
+                - 전화번호
                 - 홈페이지url
+                - 운영 시간(모르는 경우 "정보 없음")
                 """,        
-                agent=self.agents["reviewr"],
+                agent=self.agents["researcher"],
+                context=[]
+            ),
+            "reviewer_task" : Task(
+                description="""
+                1. researcher가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
+                2. researcher가 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
+                3. 카페 특징은 Decider가 고객 요구사항에 맞는 카페인지 점검할 수 있도록 구체적으로 써주세요.
+                4. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
+                """,
+                expected_output="""
+                중복되지 않는 카페 리스트를 반환해주세요.
+                - 이름
+                - 포스팅 횟수
+                - 카페 특징(분위기, 시그니처 메뉴, 주요 특징, 긍정 리뷰, 부정 리뷰 요약)
+                - placeId
+                - 주소
+                - 이미지url
+                - 위도
+                - 경도
+                - 전화번호
+                - 홈페이지url
+                - 운영 시간(모르는 경우 "정보 없음")
+                """,        
+                agent=self.agents["reviewer"],
                 context=[]
             ),
             "Decider_task" : Task(
                 description="""
-                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts}), 주 연령대({ages})를 반영해 카페를 선택해주세요.
-                2. reviewr가 반환한 특징을 참고해 부정적인 의견이 있는 카페는 삭제해주세요.
-                                
+                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts}), 주 연령대({ages})가 반영된 카페를 가장 우선적으로 선택하세요.
+                2. reviewer가 반환한 특징을 참고해 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
+                3. reviewer가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용해 각 카페의 운영 시간과 웹사이트 정보를 수집하세요.
+ 
                 모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
                 """,
                 expected_output="""
-                서로 다른 {n}*2개의 카페 정보를 반환하세요.
+                prompt({prompt})가 빈 문자열""이 아니거나, None이 아니거나, null이 아닌 경우 서로 다른 5개의 카페를 반환해주세요.
+                서로 다른 {n}*2개의 카페 정보를 반환하세요. 
                 spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
                 order는 방문할 순서입니다. spot_time을 기준으로 빠른 시간부터 오름차순 정렬해주세요. 순서는 1부터 시작합니다.
                 spot_category는 항상 3으로 고정해주세요
                 day_x는 {n}일의 여행 일정 중 몇일차인지 입니다.(만약, day_x:1 이라면 1일차에 방문한다는 의미)  
+                business_status는 boolean으로 반환해주세요.
                 """,
                 context=[],        
                 agent=self.agents["Decider"],
                 output_pydantic=spots_pydantic
             )
         }     
-        
+    @time_check   
     async def create_recommendation(self, input_data: dict, prompt: Optional[str] = None) -> dict:
         """
         사용자 맞춤 카페를 추천하는 에이전트
