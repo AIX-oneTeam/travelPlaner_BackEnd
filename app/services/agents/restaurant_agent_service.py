@@ -24,6 +24,7 @@ class RestaurantAgentService:
     """식당 추천을 위한 Agent 서비스"""
 
     _instance = None
+    _place_id_cache = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -34,7 +35,7 @@ class RestaurantAgentService:
     def initialize(self):
         """서비스 초기화"""
         # print("RestaurantAgentService 초기화 중...")
-        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
+        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
         self.restaurant_search_tool = RestaurantBasicSearchTool()
@@ -42,6 +43,14 @@ class RestaurantAgentService:
         self.image_search_tool = NaverImageSearchTool()
         self.kakao_local_search_tool = KakaoLocalSearchTool()
         self.agents = self._create_agents()
+
+    def _cache_place_ids(self, location: str, place_ids: List[str]):
+        """장소 ID들을 캐시에 저장"""
+        self._place_id_cache[location] = place_ids
+
+    def _get_cached_place_ids(self, location: str) -> List[str]:
+        """캐시된 장소 ID들을 조회"""
+        return self._place_id_cache.get(location, [])
 
     def _process_input(
         self, input_data: dict, prompt: Optional[str] = None
@@ -325,17 +334,37 @@ class RestaurantAgentService:
     ) -> dict:
         """추천 워크플로우를 실행하는 메서드"""
         try:
-            # 1. 입력 데이터 전처리
+            location = input_data["main_location"]
+
+            # 프롬프트가 있는 경우 (수정 요청), 캐시된 place_id들을 existing_spots로 전달
+            if prompt:
+                cached_place_ids = self._get_cached_place_ids(location)
+                if cached_place_ids:
+                    existing_spots = [{"place_id": pid} for pid in cached_place_ids]
+                    print(f"[DEBUG] Using cached place_ids: {cached_place_ids}")
+
             processed_input, prompt_text = self._process_input(input_data, prompt)
-
-            # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text, existing_spots)
-
-            # 3. Crew 실행
             crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True, memory=True)
-
-            # 4. 결과 처리
             result = await crew.kickoff_async()
+
+           # 프롬프트가 없는 경우 (첫 요청), place_id들을 캐시에 저장
+            if not prompt and hasattr(result, "tasks_output") and result.tasks_output:
+                try:
+                    # restaurant_search의 결과는 tasks_output[1]에 있음
+                    restaurant_results = result.tasks_output[1]
+                    if restaurant_results and isinstance(restaurant_results, list):
+                        place_ids = []
+                        for spot in restaurant_results:
+                            if isinstance(spot, dict) and spot.get("place_id"):
+                                place_ids.append(spot["place_id"])
+                        
+                        if place_ids:  # place_ids가 비어있지 않은 경우에만 캐시에 저장
+                            self._cache_place_ids(location, place_ids)
+                            print(f"[DEBUG] Cached place_ids: {place_ids}")
+                except Exception as e:
+                    print(f"[WARNING] Failed to cache place_ids: {e}")
+
             return self._process_result(result, processed_input)
 
         except Exception as e:
