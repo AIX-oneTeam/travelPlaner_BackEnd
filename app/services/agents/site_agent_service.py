@@ -69,7 +69,7 @@ class TouristAgentService:
 
     def initialize(self):
         """서비스 초기화"""
-        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
+        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
         self.web_search_tool = NaverTouristWebSearchTool()
         self.image_search_tool = NaverTouristImageSearchTool()
         self.agents = self._create_agents()
@@ -223,7 +223,7 @@ class TouristAgentService:
                 spot["map_url"] = (
                     f"https://map.kakao.com/link/map/{spot.get('kor_name', '')},{new_lat},{new_lon}"
                 )
-            # 동적 day_x 할당 (여행 기간 내에서 순환)
+            # 동적 day_x 할당 (여행 기간 내에서 순환)c
             if not spot.get("day_x") or spot.get("day_x") == 0:
                 spot["day_x"] = (idx % total_days) + 1
 
