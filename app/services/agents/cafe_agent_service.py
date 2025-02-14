@@ -1,7 +1,9 @@
+import traceback
 from typing import List
 from crewai import Agent, Task, Crew, LLM, Process
-from app.dtos.spot_models import spots_pydantic,calculate_trip_days
-from app.services.agents.tools.cafe_tool import NaverWebSearchTool,NaverBlogCralwerTool,NaverReviewCralwerTool
+from app.dtos.spot_models import spots_pydantic
+from app.utils.calculate_trip_days import calculate_trip_days
+from app.services.agents.tools.cafe_tool import NaverBlogSearchTool,NaverBlogCralwerTool,NaverReviewCralwerTool
 from app.services.agents.tools.restaurant_tool import NaverImageSearchTool
 from typing import List, Dict, Optional
 import os
@@ -26,7 +28,7 @@ class CafeAgentService:
         #print("cafe agent를 초기화합니다")
                 
         self.llm = LLM(model="gpt-4o-mini",api_key=OPENAI_API_KEY,temperature=0,max_tokens=4000)
-        self.get_cafe_list_tool = NaverWebSearchTool()
+        self.get_cafe_list_tool = NaverBlogSearchTool()
         self.get_cafe_info_tool = NaverBlogCralwerTool()
         self.get_cafe_review_tool = NaverReviewCralwerTool()
         self.get_cafe_image_tool = NaverImageSearchTool()
@@ -88,7 +90,7 @@ class CafeAgentService:
                 backstory="""
                 고객에게 가장 적합한 카페를 선별하고 추천해줍니다.
                 """,
-                tools=[self.get_cafe_image_tool],
+                # tools=[self.get_cafe_image_tool],
                 allow_delegation=False,
                 max_iter=1,
                 llm=self.llm,
@@ -100,13 +102,13 @@ class CafeAgentService:
         return {
             "collector_task" : Task(
                 description="""
-                1. tool 사용시 "{main_location} 카페"로 검색하세요
+                1. tool 사용시 "{main_location}"을 입력 값으로 사용하세요.
                 2. 중복된 카페는 삭제해주세요
                 3. "비추' 등의 부정적인 의견이 있는 글은 삭제해주세요
                 4. 카페 추천 또는 카페 후기가 아닌 글은 삭제해주세요 
                 """,
                 expected_output="""
-                - 카페이름
+                - 카페 이름
                 - 네이버 블로그 url
                 """,        
                 agent=self.agents["collector"],
@@ -131,57 +133,55 @@ class CafeAgentService:
                 - 이름
                 - 특징(분위기, 시그니처 메뉴, 사람들이 공통 적으로 좋아했던 특징, 리뷰 요약)
                 - 주소
+                - 이미지url
                 - 위도
                 - 경도
-                - 홈페이지
+                - 홈페이지url
                 """,        
                 agent=self.agents["reviewr"],
                 context=[]
             ),
             "Decider_task" : Task(
                 description="""
-                1. 고객의 요구사항({prompt_text}), 여행 컨셉({concepts}), 주 연령대({ages})를 반영해 카페를 선택해주세요.
+                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts}), 주 연령대({ages})를 반영해 카페를 선택해주세요.
                 2. reviewr가 반환한 특징을 참고해 부정적인 의견이 있는 카페는 삭제해주세요.
                                 
                 모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
                 """,
                 expected_output="""
-                서로 다른 {n}개의 카페 정보를 반환하세요.
-                다음 4가지 필드는 항상 해당 값으로 고정해주세요
-                spot_category: 3
-                order: 0
-                day_x: 0
-                spot_time: "00:00" 
+                서로 다른 {n}*2개의 카페 정보를 반환하세요.
+                spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
+                order는 방문할 순서입니다. spot_time을 기준으로 빠른 시간부터 오름차순 정렬해주세요. 순서는 1부터 시작합니다.
+                spot_category는 항상 3으로 고정해주세요
+                day_x는 {n}일의 여행 일정 중 몇일차인지 입니다.(만약, day_x:1 이라면 1일차에 방문한다는 의미)  
                 """,
                 context=[],        
                 agent=self.agents["Decider"],
-                output_json=spots_pydantic
+                output_pydantic=spots_pydantic
             )
         }     
         
-    async def create_recommendation(self, input_data: dict, prompt_text: Optional[str] = None) -> dict:
+    async def create_recommendation(self, input_data: dict, prompt: Optional[str] = None) -> dict:
         """
         사용자 맞춤 카페를 추천하는 에이전트
         """
         if input_data is None:
             raise ValueError("[CafeAgent] 에러 - input_data이 없습니다. 잘못된 요청을 보냈는지 확인해주세요")
-        
+
         input_data["concepts"] = ', '.join(input_data.get('concepts',''))
-        input_data["prompt_text"] = prompt_text
-        input_data["n"] = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))*2
+        input_data["prompt"] = prompt
+        input_data["n"] = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
         
         # 실행
         try:
             result = await self.crew.kickoff_async(inputs=input_data)
-            print(result)
-            return result.json_dict.get("spots",[])
+            print(f"result:{result}")
+            return result.pydantic.model_dump()
         except Exception as e:
-            print(f"Error during execution: {e}")
-
-            # 오류가 발생한 경우 Observation을 직접 확인
-            if hasattr(e, 'Observation'):
-                print(f"[CafeAgent] 에러 - Tool Output (Observation): {e.Observation}")
-                
+            print(f"[CafeAgent] 에러: {e}")
+            error_details = traceback.format_exc()  # 전체 오류 스택 추적
+            print(f"[CafeAgent] 상세 에러: {error_details}")  # 터미널에 상세 오류 출력
+               
                 
 # {
 #   "ages": "20대",
