@@ -15,6 +15,9 @@ load_dotenv()
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
 
+httpx_timeout = 5
+n_semaphore = 5
+
 def simplify_address(region: str) -> str:
     # 먼저 입력 문자열에 "-"가 포함되어 있으면 "-"로, 없으면 공백을 기준으로 분리합니다.
     if "-" in region:
@@ -127,28 +130,15 @@ class NaverBlogSearchTool(BaseTool):
         
         querys =[keywords_query, simplified_location+" 카페", simplified_location+" 느좋 카페"]
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx_timeout) as client:            
             # 각 검색어마다 비동기 요청(task)을 생성합니다.
             tasks = [self._fetch_query(client, query) for query in querys]
             results = await asyncio.gather(*tasks)
-            # 각 검색 결과를 구분하기 위해 빈 줄 두 개로 연결
+            # 각 검색 결과를 구분
             return "\n---------------\n".join(results)
             
     def _run(self, main_location: str, keywords:List[str]) -> str:
         return asyncio.run(self._arun(main_location, keywords))
-
-# async def main():
-#     print("Client ID:", AGENT_NAVER_CLIENT_ID)
-#     print("Client Secret:", AGENT_NAVER_CLIENT_SECRET)
-
-#     blog_tool = NaverBlogSearchTool()
-#     result = await blog_tool._arun("서울특별시 - 강남구", ["힐링", "오션뷰"])
-#     print(result)
-
-# # 비동기 함수 실행
-# if __name__ == "__main__":
-#     asyncio.run(main())
-    
     
 class NaverBlogCralwerTool(BaseTool):
     name: str = "NaverBlogCralwer"
@@ -172,8 +162,8 @@ class NaverBlogCralwerTool(BaseTool):
             data_module_content = a_tag.get("data-linkdata")
             data = json.loads(data_module_content)
             
-            place_id = data.get("placeId")
-            if not place_id:  # placeId가 없는 경우만 체크
+            placeId = data.get("placeId")
+            if not placeId:  # placeId가 없는 경우만 체크
                 return None
             
             # 네이버 블로그 본문 추출
@@ -192,7 +182,7 @@ class NaverBlogCralwerTool(BaseTool):
             #     cleaned_text = emoji.replace_emoji(cleaned_text, replace='')
                                 
             return {
-                "placeId": place_id,
+                "placeId": placeId,
                 "name": data.get("name", ""),
                 "address": data.get("address", ""),
                 "latitude": data.get("latitude", ""),
@@ -207,22 +197,22 @@ class NaverBlogCralwerTool(BaseTool):
 
     async def _arun(self, urls: List[str]) -> str:
         _unique_places = {}
-        semaphore = asyncio.Semaphore(5)
+        semaphore = asyncio.Semaphore(n_semaphore)
         
-        async def bounded_fetch(url, client):
+        async def bounded_fetch(client, url):
             async with semaphore:
-                return await self._fetch_blog_data(url, client)
+                return await self._fetch_blog_data(client, url)
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx_timeout) as client:          
             tasks = [bounded_fetch(client, url) for url in urls if url]
             results = await asyncio.gather(*tasks)
             
             # 중복 제거는 여기서 한 번에 처리
             for result in results:
                 if isinstance(result, dict) and "error" not in result and result.get("placeId"):
-                    place_id = result["placeId"].strip()  # 앞뒤 공백 제거
-                    if place_id not in _unique_places:  # 이미 있는 placeId가 아니라면 추가
-                        _unique_places[place_id] = result
+                    placeId = result["placeId"].strip()  # 앞뒤 공백 제거
+                    if placeId not in _unique_places:  # 이미 있는 placeId가 아니라면 추가
+                        _unique_places[placeId] = result
                         
             return json.dumps(list(_unique_places.values()), indent=4, ensure_ascii=False)
         
@@ -268,9 +258,14 @@ class NaverReviewCralwerTool(BaseTool):
 
     async def _arun(self, placeIds: List[str]) -> str:
         """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
+        semaphore = asyncio.Semaphore(n_semaphore)
         
-        async with httpx.AsyncClient() as client:
-            tasks = [self._fetch_review_data(client, placeId) for placeId in placeIds]
+        async def bounded_fetch(client, placeId):
+            async with semaphore:
+                return await self._fetch_review_data(client, placeId)
+            
+        async with httpx.AsyncClient(timeout=httpx_timeout) as client:
+            tasks = [bounded_fetch(client, placeId) for placeId in placeIds]
             results = await asyncio.gather(*tasks)
 
         # 오류 메시지 제외하고 유효한 데이터만 반환
@@ -291,12 +286,12 @@ class NaverBusinessInfoTool(BaseTool):
     name: str = "NaverBusinessInfoCralwer"
     description: str = "네이버 업체 정보를 크롤링해 카페 운영시간, 웹사이트 정보 추출"
     
-    async def _fetch_business_info(self, client: httpx.AsyncClient, place_id: str) -> str:
+    async def _fetch_business_info(self, client: httpx.AsyncClient, placeId: str) -> str:
         """
         비동기 정보 스크래퍼. 네이버 지도에서 카페를 정적 크롤링을 통해 검색하고 정보를 가져오는 도구.
         """
 
-        url = f"https://m.place.naver.com/restaurant/{place_id}/home"
+        url = f"https://m.place.naver.com/restaurant/{placeId}/home"
         headers = {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
             "Referer": "https://m.place.naver.com/"
@@ -306,10 +301,12 @@ class NaverBusinessInfoTool(BaseTool):
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "html.parser")
             
+            url = f"https://m.place.naver.com/restaurant/{placeId}/home"
             # 기본 반환 데이터
             result = {
-                "place_id": place_id,
-                "url": "정보 없음",
+                "placeId": placeId,
+                "map_url": f"https://m.place.naver.com/restaurant/{placeId}/location?filter=location&selected_place_id={placeId}",
+                "url": url,
                 "business_hour": "정보 없음"
             }
             
@@ -317,7 +314,7 @@ class NaverBusinessInfoTool(BaseTool):
             try:
                 if div_tag := soup.find("div", class_="jO09N"):
                     if a_tag := div_tag.find("a"):
-                        result["url"] = a_tag.get("href", "정보 없음")
+                        result["url"] = a_tag.get("href", url)
             except:
                 pass
                 
@@ -335,10 +332,15 @@ class NaverBusinessInfoTool(BaseTool):
             return f"[cafe_tool:NaverBusinessInfoTool] 에러: {str(e)}"
     
     async def _arun(self, placeIds: List[str]) -> str:
-        """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
+        """여러 개의 장소 placeId를 받아 카페 운영시간, 웹사이트 정보를 수집"""
+        semaphore = asyncio.Semaphore(n_semaphore) 
         
-        async with httpx.AsyncClient() as client:
-            tasks = [self._fetch_business_info(client, placeId) for placeId in placeIds]
+        async def bounded_fetch(client, placeId):
+            async with semaphore:
+                return await self._fetch_business_info(client, placeId)
+            
+        async with httpx.AsyncClient(timeout=httpx_timeout) as client:
+            tasks = [bounded_fetch(client, placeId) for placeId in placeIds]
             results = await asyncio.gather(*tasks)
 
         # 오류 메시지 제외하고 유효한 데이터만 반환
