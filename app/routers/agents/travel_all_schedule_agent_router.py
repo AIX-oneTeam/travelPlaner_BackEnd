@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -12,6 +13,13 @@ from app.services.agents.accommodation_agent_4 import run
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
 from app.services.agents.accommodation_agent_service2 import AccommodationAgentService
+from app.services.messaging.messaging_service import send_push_message
+
+# 테스트용 환경변수 로드
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 router = APIRouter()
 
@@ -71,6 +79,11 @@ async def generate_plan(
 
         # 최종 여행 일정 생성 함수 호출 (외부 데이터가 포함된 상태)
         result = await travel_schedule_agent_service.create_plan(input_dict)
+
+        # 푸시 메시지 전송
+        # 테스트용 하드코딩
+        token = os.getenv("TEST_TOKEN")
+        send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.", link="https://easyTravel.jomalang.com")
 
         return {
             "status": "success",
