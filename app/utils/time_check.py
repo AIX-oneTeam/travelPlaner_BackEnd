@@ -1,20 +1,17 @@
 import time
-import functools
-from typing import Callable
-import asyncio
 
-def time_check(func: Callable):
+def time_check(func):
     """_summary_
     Args:
         func (_type_): 측정 하고 싶은 함수 입력
     Description:
         함수의 실행시간을 측정하는 데코레이터 함수
     """
-    @functools.wraps(func) # __name__으로 함수 이름(메타데이터) 확인 가능
-    async def async_wrapper(*args, **kwargs):
+
+    def wrapper(*args, **kwargs):
         start_time = time.time()
 
-        result = await func(*args, **kwargs)
+        result = func(*args, **kwargs)
 
         end_time = time.time()
 
@@ -31,9 +28,4 @@ def time_check(func: Callable):
 
         print(f"💡[ time_check ] {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
         return result
-    
-    @functools.wraps(func)
-    def sync_wrapper(*args, **kwargs):
-        return asyncio.run(async_wrapper(*args, **kwargs))
-    
-    return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+    return wrapper
