@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from app.utils.time_check import time_check
 from app.services.agents.tools.all_schedule_agent_tool import HaversineRouteOptimizer
+import logging
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -23,7 +24,6 @@ class TravelScheduleAgentService:
         return cls._instance
 
     def initialize(self):
-        print("TravelScheduleAgentService 초기화 중...")
         self.llm = llm
         self.route_tool = HaversineRouteOptimizer()
         self.agents = self._create_agents()
@@ -39,44 +39,71 @@ class TravelScheduleAgentService:
                 tools=[self.route_tool],
                 llm=self.llm,
                 verbose=True,
-                max_iter=1,
+                
             )
         }
 
     def _create_tasks(self) -> List[Task]:
         """Task들을 생성하는 메서드"""
         task_description = """
-        [최종 여행 일정 생성]
-        - 여행 기간: {start_date} ~ {end_date}
-        - external_data에는 다음 세 가지 카테고리의 장소들이 포함되어 있습니다:
-        1. restaurant: 맛집 목록
-        2. cafe: 카페 목록
-        3. site: 관광지 목록
+        사용자 입력인 {start_date}, {end_date}를 기준으로 전체 여행 기간을 계산합니다.
+        각 날짜마다 일정을 동적으로 생성하며, 각 날짜는 day_x (1부터 순차적 증가)로 표시합니다.
         
-        - day_x: 방문 날짜
-        - order: 해당 날짜의 방문 순서
-        -spot_time: 해당 스팟의 방문 추천 시간.
-
-        일정 구성 필수 규칙:
-        1. 아침 일정 (08:00)
-        - site(관광지) 목록에서 1곳 선택
-        - cafe(카페) 목록에서 1곳 선택
-
-        2. 점심 일정 (12:00)
-        - restaurant(맛집) 목록에서 1곳 선택
-        - site(관광지) 목록에서 2곳 선택
-
-        3. 저녁 일정 (18:00)
-        - restaurant(맛집) 목록에서 1곳 선택
-        - 숙소가 있다면 포함
-        중요 제약사항:
-        - 각 카테고리(restaurant, cafe, site)별로 제공된 데이터만 사용할 것
-        - 새로운 장소를 임의로 생성하지 말 것
-        - 필요한 카테고리의 데이터가 부족하면 해당 시간대는 비워둘 것
-        - 이동 거리와 시간을 고려하여 효율적인 동선으로 구성할 것
-        - 각 장소는 중복 사용하지 않을 것
-
-        External Data: {external_data}
+        각 장소 기록은 아래와 같이 할당됩니다:
+        - day_x: 해당 날짜 (1부터 순차적 증가)
+        - order: 해당 날짜 내 방문 순서 (존재하는 시간 슬롯 기준 1부터 순차적 할당)
+        - spot_time: 미리 정의된 고정된 시간 슬롯 (08:00, 12:00, 18:00)으로 할당 (절대 변경되지 않음)
+        
+        {external_data}: 선택된 에이전트로부터 받은 장소 데이터 목록.
+        사용 가능한 카테고리: restaurant, cafe, site, accommodation (제공된 카테고리만 사용)
+        
+        [TIME SLOT CONSTRUCTION] - **고정된 시간 슬롯 사용: 08:00, 12:00, 18:00**
+        반드시 아래의 규칙에 따라 장소를 할당하며, 시간 값은 변경되지 않아야 합니다.
+        
+        1. 아침 (08:00)
+        - 조건: site 카테고리와 cafe 카테고리가 모두 존재할 때만 생성
+            IF 조건 만족 시:
+            - site에서 1곳 선택
+            - cafe에서 1곳 선택
+        
+        2. 점심 (12:00)
+        - 조건: restaurant 카테고리와 site 카테고리가 모두 존재할 때만 생성
+            IF 조건 만족 시:
+            - restaurant에서 1곳 선택
+            - site에서 2곳 선택
+        
+        3. 저녁 (18:00)
+        - 조건:
+            IF restaurant 카테고리와 accommodation 카테고리가 모두 존재하면:
+            - restaurant에서 1곳 선택
+            - accommodation에서 1곳 선택 (마지막 날 제외)
+            ELSE IF restaurant 카테고리만 존재하면:
+            - restaurant에서 1곳만 선택
+        
+        [OPTIMIZATION REQUIREMENTS]
+        1. 위치 기반 최적화: 
+        - 제공된 장소들의 위도/경도 정보를 사용하여 이동 거리를 최소화합니다.
+        2. 순서 할당:
+        - day_x: 각 날짜별로 1부터 순차적으로 할당
+        - order: 해당 날짜 내 시간 슬롯(존재하는 슬롯만) 순서대로 1부터 할당
+        - spot_time: 반드시 고정된 시간 슬롯 (08:00, 12:00, 18:00)을 사용하며, 절대로 변경되지 않습니다.
+        
+        [CONSTRAINTS]
+        1. 모든 장소는 한 번만 사용
+        2. 필요한 카테고리가 없는 시간 슬롯은 생략
+        3. 선택되지 않은 카테고리는 고려하지 않음
+        4. 마지막 날에는 숙소(accommodation)를 포함하지 않음
+        
+        [OUTPUT]
+        최종 일정은 spots_pydantic 형식의 데이터로 출력되며, 각 장소에 day_x, order, spot_time 값이 올바르게 부여됩니다.
+        
+        [PROCESS]
+        1. {external_data}에서 사용 가능한 카테고리 확인
+        2. 가능한 시간 슬롯 조합 결정
+        3. 각 시간 슬롯별로 장소 할당 (08:00, 12:00, 18:00은 고정)
+        4. 위치 기반 최적 경로 계산
+        5. day_x, order, spot_time 값 할당
+        6. 최종 일정 생성
         """
         return [Task(
             description=task_description,
@@ -103,6 +130,8 @@ class TravelScheduleAgentService:
     async def create_plan(self, input_dict: dict) -> dict:
         """여행 일정 생성 워크플로우 실행"""
         try:
+            logging.info(f"받은 데이터: {input_dict}")
+
             # Task 생성
             tasks = self._create_tasks()
             
