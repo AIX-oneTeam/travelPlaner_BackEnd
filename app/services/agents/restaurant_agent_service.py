@@ -34,7 +34,7 @@ class RestaurantAgentService:
     def initialize(self):
         """서비스 초기화"""
         # print("RestaurantAgentService 초기화 중...")
-        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
+        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
         self.restaurant_search_tool = RestaurantBasicSearchTool()
@@ -130,7 +130,9 @@ class RestaurantAgentService:
             ),
         }
 
-    def _create_tasks(self, input_data: dict, prompt_text: str) -> List[Task]:
+    def _create_tasks(
+        self, input_data: dict, prompt_text: str, existing_spots: List[Dict] = None
+    ) -> List[Task]:
         """Task들을 생성하는 메서드"""
         return [
             Task(
@@ -142,6 +144,7 @@ class RestaurantAgentService:
                 description="맛집 기본 정보 조회",
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
+                context=[{"existing_spots": existing_spots}] if existing_spots else [],
             ),
             Task(
                 description=f"""{input_data['main_location']} 지역의 맛집 데이터를 최신 검색 결과를 활용하여 수집하고,
@@ -240,35 +243,40 @@ class RestaurantAgentService:
                 - **address**: 식당의 도로명 주소를 수집하며, 도로명 주소가 없는 경우 지번 주소를 반환할 것.  
                 - **latitude, longitude**: 검색된 식당의 정확한 위도 및 경도 좌표를 반환할 것.  
                 - **map_url**: 해당 식당의 카카오맵 URL을 제공할 것.  
-                - **phone_number**: 식당의 전화번호를 수집할 것.  
+                - **phone_number**: 식당의 전화번호를 수집할 것.
 
-                ### **여행 일정 기반 필수 규칙**:
-                - **spot_category**는 항상 `2`로 설정해야 한다.  
-                - **day_x**는 사용자의 여행 일정에서 **해당 식당이 추천된 날짜**를 의미한다.  
-                - **order**는 `day_x` 내에서의 추천 순서이며, 이동 동선과 식사 유형(아침/점심/저녁)을 고려하여 자동 설정된다.  
-                - **order**: 여행 동선과 식사 유형을 고려한 방문 순서.  
-                    - `1` (아침): 가벼운 조식 (예: 브런치, 해장국, 한식 조식, 베이커리).  
-                    - `2` (점심): 든든한 식사 (예: 한정식, 고기류, 해산물, 파스타 등).  
-                    - `3` (저녁): 든든한 식사 또는 분위기 있는 저녁 (예: 고기류, 해산물, 스테이크, 한정식, 술과 함께할 요리, 로컬 야시장, 바 & 펍).  
-                - **위치 정보(latitude, longitude)를 활용하여 사용자의 이동 동선을 고려해 추천할 것.**  
-                - **같은 지역에서 지나치게 먼 이동이 발생하지 않도록 조정할 것.**  
+                ## 여행 일정 기반 필수 규칙
+                - `spot_category`는 항상 `2`로 설정해야 한다.  
+                - `day_x`는 사용자의 여행 일정에서 **해당 식당이 추천된 날짜**를 의미하며, 반드시 **숫자로만 반환**해야 한다.  
+                    - `{input_data['start_date']}`을 `1`로 설정하고 이후 날짜는 `+1`씩 증가.  
+                    - `{input_data['end_date']}`을 포함하여 자동으로 `day_x`를 계산.  
+                - `order`는 `day_x` 내에서의 추천 순서이며, 반드시 **1, 2, 3까지만 가능**하다.  
+                    - 하루에 **최대 3개의 추천 (`order = 1, 2, 3`)** 만 가능하다.  
+                    - `order = 3`이 되면, 다음 추천은 **`day_x +1`로 이동**하며, `order = 1`부터 다시 시작해야 한다.  
+                - `order`는 여행 동선과 식사 유형을 고려한 방문 순서이며, 다음 기준을 따른다.  
+                    - `1` (아침): 브런치, 해장국, 한식 조식, 베이커리 등  
+                    - `2` (점심): 한정식, 고기류, 해산물, 파스타 등  
+                    - `3` (저녁): 고기류, 해산물, 스테이크, 한정식, 로컬 야시장, 바 & 펍 등  
+                - `latitude, longitude`를 활용하여 **사용자의 이동 동선을 고려**해 추천할 것.  
+                - 같은 지역에서 **불필요한 장거리 이동이 발생하지 않도록 조정**할 것.  
 
-                - **spot_time**은 사용자의 식사 시간 패턴을 고려하여, 예상 방문 시간을 `hh:mm:ss` 형식으로 반환해야 한다.
-                    - 아침: `08:00 ~ 10:00` 중에서 하나를 골라 시간을 작성해야 한다.
-                    - 점심: `12:00 ~ 14:00` 중에서 하나를 골라 시간을 작성해야 한다.
-                    - 저녁: `18:00 ~ 20:00` 중에서 하나를 골라 시간을 작성해야 한다.
-                    - 실제 여행 일정과 사용자의 선호도에 따라 ±1시간 조정될 수 있음.
-                
-                - **order 및 day_x 값은 사용자의 여행 일정과 동선을 고려하여 자동 조정해야 한다.**  
+                - `spot_time`은 사용자의 식사 시간 패턴을 고려하여 `hh:mm:ss` 형식으로 반환해야 한다.  
+                    - `{input_data['start_date']}`을 기준으로 `day_x`를 계산하여 시간 설정.  
+                    - 아침: `08:00 ~ 10:00` 중 선택  
+                    - 점심: `12:00 ~ 14:00` 중 선택  
+                    - 저녁: `18:00 ~ 20:00` 중 선택  
+                    - 사용자의 선호도 및 일정에 따라 ±1시간 조정 가능  
 
-                ### **반환 데이터 형식 및 예외 처리**:
+                - `order` 및 `day_x` 값은 사용자의 여행 일정(`{input_data['start_date']} ~ {input_data['end_date']}`)을 고려하여 자동 조정해야 한다.  
+
+                ## 반환 데이터 형식 및 예외 처리
                 - 기존 JSON 형식을 유지하면서, 위에서 지정한 필드를 업데이트해야 한다.  
                 - `business_status`는 반드시 `true`, `false` 값으로 반환할 것.  
-                - 정보가 없는 경우 해당 필드는 `null`로 설정할 것.  
+                - 정보가 없는 경우 해당 필드는 `null`로 설정할 것.
 
                 ### **검색 주의사항**:
                 - 모든 식당 검색 시 "{input_data['main_location']}"을 포함하여 검색할 것.  
-                - 정확한 검색을 위해 지역명을 검색어 앞에 추가할 것 (예: "{input_data['main_location']} 식당이름").  
+                - 정확한 검색을 위해 지역명을 검색어 앞에 추가할 것 (예: "{input_data['main_location']} 식당이름").
 
                 위 기준을 적용하여 **카카오 로컬 API를 활용한 상세 정보를 반환**하라.
                 """,
@@ -310,7 +318,10 @@ class RestaurantAgentService:
         }
 
     async def create_recommendation(
-        self, input_data: dict, prompt: Optional[str] = None
+        self,
+        input_data: dict,
+        prompt: Optional[str] = None,
+        existing_spots: Optional[List[Dict]] = None,
     ) -> dict:
         """추천 워크플로우를 실행하는 메서드"""
         try:
@@ -318,7 +329,7 @@ class RestaurantAgentService:
             processed_input, prompt_text = self._process_input(input_data, prompt)
 
             # 2. Task 생성
-            tasks = self._create_tasks(processed_input, prompt_text)
+            tasks = self._create_tasks(processed_input, prompt_text, existing_spots)
 
             # 3. Crew 실행
             crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True, memory=True)

@@ -121,7 +121,10 @@ class RestaurantBasicSearchTool(BaseTool):
             print(f"[RestaurantBasicSearchTool] Details Error: {e}")
             return None
 
-    async def _arun(self, location: str, coordinates: str) -> List[Dict]:
+    async def _arun(
+        self, location: str, coordinates: str, context: List[Dict] = None
+    ) -> List[Dict]:
+        existing_spots = context[0].get('existing_spots') if context and len(context) > 0 else None
         url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
         all_candidates = []
         lat, lng = coordinates.split(",")
@@ -134,8 +137,13 @@ class RestaurantBasicSearchTool(BaseTool):
             "key": GOOGLE_MAP_API_KEY,
         }
 
+        existing_names = (
+            set()
+            if not existing_spots
+            else {spot["kor_name"] for spot in existing_spots}
+        )
+
         async def fetch_places(filter_rating: float, filter_reviews: int):
-            """특정 필터링 기준으로 Google Places API에서 식당 정보를 가져오는 함수"""
             candidates = []
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params) as response:
@@ -153,12 +161,12 @@ class RestaurantBasicSearchTool(BaseTool):
                                 details
                                 and details["rating"] >= filter_rating
                                 and details["reviews"] >= filter_reviews
+                                and details["title"] not in existing_names
                             ):
                                 candidates.append(details)
 
                     next_page_token = data.get("next_page_token")
 
-                    # 추가 요청: 후보 수가 15개 미만이면 추가로 요청
                     while next_page_token and len(candidates) < 15:
                         try:
                             await asyncio.sleep(3)  # next_page_token 유효 대기
@@ -180,6 +188,7 @@ class RestaurantBasicSearchTool(BaseTool):
                                             details
                                             and details["rating"] >= filter_rating
                                             and details["reviews"] >= filter_reviews
+                                            and details["title"] not in existing_names
                                         ):
                                             candidates.append(details)
 
@@ -190,21 +199,17 @@ class RestaurantBasicSearchTool(BaseTool):
             return candidates
 
         try:
-            # 1차: 대도시 기준
             all_candidates = await fetch_places(4.0, 500)
 
-            # 결과가 15개 미만이면 중소도시 기준으로 추가 검색
             if len(all_candidates) < 15:
                 print(
                     "결과가 15개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 200개 이상)로 추가 검색"
                 )
                 additional_candidates = await fetch_places(3.5, 200)
-                # 새로운 결과를 기존 결과에 추가
                 all_candidates.extend(
                     [c for c in additional_candidates if c not in all_candidates]
                 )
 
-                # 여전히 15개 미만이면 외곽/지방 기준으로 추가 검색
                 if len(all_candidates) < 15:
                     print(
                         "결과가 여전히 15개 미만 → 필터링 조건 추가 완화 (평점 3.3 이상, 리뷰 100개 이상)로 추가 검색"
@@ -219,8 +224,10 @@ class RestaurantBasicSearchTool(BaseTool):
             print(f"[RestaurantBasicSearchTool] Search Error: {e}")
         return all_candidates
 
-    def _run(self, location: str, coordinates: str) -> List[Dict]:
-        return asyncio.run(self._arun(location, coordinates))
+    def _run(
+        self, location: str, coordinates: str, context: List[Dict] = None
+    ) -> List[Dict]:
+        return asyncio.run(self._arun(location, coordinates, context))
 
 
 # 3. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool
