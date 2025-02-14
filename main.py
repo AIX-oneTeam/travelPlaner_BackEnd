@@ -45,13 +45,13 @@ logger.info("💡로그 설정 완료")
 # FastAPI 애플리케이션 생성
 app = FastAPI(lifespan=lifespan)
 
-
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://easytravel.jomalang.com",
         "http://localhost:3000",
+        "http://localhost:3000/checkList"
     ],  # 모든 출처 허용
     allow_credentials=True,
     allow_methods=["*"],
