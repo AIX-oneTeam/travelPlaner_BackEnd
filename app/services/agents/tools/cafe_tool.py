@@ -11,12 +11,11 @@ import emoji
 import re
 load_dotenv()
 
-
 # 네이버 API 관련 환경변수
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
 
-def create_search_query(region: str) -> str:
+def simplify_address(region: str) -> str:
     # 먼저 입력 문자열에 "-"가 포함되어 있으면 "-"로, 없으면 공백을 기준으로 분리합니다.
     if "-" in region:
         parts = [p.strip() for p in region.split("-")]
@@ -74,17 +73,16 @@ def create_search_query(region: str) -> str:
     # 두번째 부분(구/군/시)이 있으면 처리
     if len(parts) > 1:
         district_str = parts[1]
-        # 부산의 경우, district가 이미 province_short로 시작하면 district만 사용
+        # 부산의 경우, district가 이미 province_short로 시작하면 district만 사용 (부산진구)
         if province_str == "부산광역시" and district_str.startswith(province_short):
-            result = f"{district_str} 카페"
+            result = district_str
         else:
             district_processed = process_district(district_str, province_short)
-            result = f"{province_short} {district_processed} 카페"
+            result = f"{province_short} {district_processed}"
     else:
-        result = f"{province_short} 카페"
+        result = province_short
         
     return result
-
 
 class NaverBlogSearchTool(BaseTool):
     name: str = "NaverBlogSearch"
@@ -97,7 +95,7 @@ class NaverBlogSearchTool(BaseTool):
             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
             "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
         }
-        params = {"query": query, "display": 30, "start": 1, "sort": "sim"}
+        params = {"query": query, "display": 20, "start": 1, "sort": "sim"}
         try:
             resp = await client.get(url, headers=headers, params=params)
             resp.raise_for_status()
@@ -116,22 +114,42 @@ class NaverBlogSearchTool(BaseTool):
         except Exception as e:
             return f"[NaverBlogSearchTool] 검색 쿼리 {query} 에러: {str(e)}"
         
-    async def _arun(self, main_location: str) -> str:
+    async def _arun(self, main_location: str, keywords:List[str]) -> str:
         if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
             return "[NaverBlogSearchTool] 네이버 API 자격 증명이 없습니다."
-        query = create_search_query(main_location)
-        querys =[query, query+" 느좋"]
+        
+        simplified_location = simplify_address(main_location)
+        # keywords가 비어있으면 기본 검색어를 사용
+        if keywords:
+            keywords_query = f"{simplified_location} 카페 +{' +'.join(keywords)}"
+        else:
+            keywords_query = f"{simplified_location} 카페"
+        
+        querys =[keywords_query, simplified_location+" 카페", simplified_location+" 느좋 카페"]
         
         async with httpx.AsyncClient() as client:
             # 각 검색어마다 비동기 요청(task)을 생성합니다.
             tasks = [self._fetch_query(client, query) for query in querys]
             results = await asyncio.gather(*tasks)
             # 각 검색 결과를 구분하기 위해 빈 줄 두 개로 연결
-            return "\n\n".join(results)
+            return "\n---------------\n".join(results)
             
-    def _run(self, main_location: str) -> str:
-        return asyncio.run(self._arun(main_location))
+    def _run(self, main_location: str, keywords:List[str]) -> str:
+        return asyncio.run(self._arun(main_location, keywords))
 
+# async def main():
+#     print("Client ID:", AGENT_NAVER_CLIENT_ID)
+#     print("Client Secret:", AGENT_NAVER_CLIENT_SECRET)
+
+#     blog_tool = NaverBlogSearchTool()
+#     result = await blog_tool._arun("서울특별시 - 강남구", ["힐링", "오션뷰"])
+#     print(result)
+
+# # 비동기 함수 실행
+# if __name__ == "__main__":
+#     asyncio.run(main())
+    
+    
 class NaverBlogCralwerTool(BaseTool):
     name: str = "NaverBlogCralwer"
     description: str = "네이버 블로그를 크롤링해 카페 정보 추출"
@@ -180,7 +198,7 @@ class NaverBlogCralwerTool(BaseTool):
                 "latitude": data.get("latitude", ""),
                 "longitude": data.get("longitude", ""),
                 "tel": data.get("tel", ""),
-                "url": data.get("bookingUrl", ""),
+                # "url": data.get("bookingUrl", ""),
                 # "contents" : cleaned_text
             }                  
 
