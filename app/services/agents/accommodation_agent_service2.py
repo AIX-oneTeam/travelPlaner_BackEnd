@@ -85,7 +85,8 @@ class AccommodationAgentService:
                             - 1. prompt가 있을 경우, prompt에서 키워드를 추출, 숙소 키워드와 비교하여 일치하는 키워드가 많은 숙소를 상위에 우선 정렬합니다. prompt가 없을 경우, 사용자 입력 keyword와 일치하는 키워드가 많은 숙소를 상위에 우선 정렬합니다. 
                             - 2. prompt에서 추출한 키워드 혹은 사용자 입력 keyword에 숙소 type이 있다면 반드시 일치하는 숙소 type을 가진 숙소를 상위에 위치하도록 합니다.
                             - 3. 사용자 입력 age_group과 숙소 추천 연령대가 일치하는 숙소를 상위에 위치합니다.
-                            - 최종 결과는 7개의 다양한 숙소 정보를 포함해야 합니다.""",
+                            - 최종 결과는 7개의 다양한 숙소 정보를 포함해야 합니다.
+                            - 시간은 13:00으로 반환헤""",
                 agent=self.agents["accommodation_recommendation_expert"],
                 expected_output="7개 이상의 숙소 정보룰 담은 숙소 리스트",
                 output_pydantic=spots_pydantic,

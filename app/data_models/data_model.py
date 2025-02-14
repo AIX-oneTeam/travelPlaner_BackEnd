@@ -72,7 +72,7 @@ class Plan(SQLModel, table=True):
     )
     
     member: Member = Relationship(back_populates="plans")
-    checklists: Optional[List["Checklist"]]= Relationship(back_populates="plan", cascade_delete=True)
+    checklists: Optional["Checklist"]= Relationship(back_populates="plan", cascade_delete=True)
     plan_spots: List["PlanSpotMap"] = Relationship(back_populates="plan", cascade_delete=True)
 
 class Spot(SQLModel, table=True):
@@ -149,7 +149,7 @@ class PlanSpotTagMap(SQLModel, table=True):
 
 class Checklist(SQLModel, table=True):
     __tablename__ = "checklist"
-    id:  int = Field(primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     plan_id: int = Field(foreign_key="plan.id")
     item: Optional[str] = Field(default=None, max_length=255)
     checked: Optional[bool] = None
