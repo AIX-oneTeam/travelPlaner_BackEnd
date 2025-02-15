@@ -40,6 +40,7 @@ def clean_query(query: str) -> str:
             clean_lines.append(line)
     return " ".join(clean_lines)
 
+
 async def check_url_openable_async(url: str) -> bool:
     """
     주어진 URL에 대해 HEAD 요청을 보내어 접근 가능한지 확인합니다.
@@ -62,8 +63,48 @@ async def check_url_openable_async(url: str) -> bool:
         print(f"Error checking URL '{url}': {e}")
         return False
 
+# 1. 키워드 추출 Tool
+class KeywordExtractionTool(BaseTool):
+    name: str = "KeywordExtractionTool"
+    description: str = (
+        "사용자의 여행 정보와 프롬프트에서 식당 검색에 필요한 키워드를 추출합니다."
+    )
 
-# 1. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
+    async def _arun(
+        self,
+        start_date: str,
+        end_date: str,
+        ages: str,
+        companion_data: List[Dict],
+        concepts: List[str],
+        prompt_text: str,
+    ) -> Dict:
+        """
+        여행 정보와 프롬프트에서 키워드 추출
+        """
+        try:
+            # companion_data 처리
+            companions = [f"{c['label']} {c['count']}명" for c in companion_data]
+
+            base_data = {
+                "travel_dates": f"{start_date}~{end_date}",
+                "age_group": ages,
+                "companions": companions,
+                "concepts": concepts,
+                "prompt": prompt_text,
+            }
+
+            return base_data
+
+        except Exception as e:
+            print(f"키워드 추출 오류: {str(e)}")
+            return {}
+
+    def _run(self, **kwargs) -> Dict:
+        return asyncio.run(self._arun(**kwargs))
+
+
+# 2. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
 class GeocodingTool(BaseTool):
     name: str = "GeocodingTool"
     description: str = (
@@ -91,7 +132,7 @@ class GeocodingTool(BaseTool):
         return asyncio.run(self._arun(location))
 
 
-# 2. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
+# 3. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
 class RestaurantBasicSearchTool(BaseTool):
     name: str = "RestaurantBasicSearchTool"
     description: str = (
@@ -116,134 +157,95 @@ class RestaurantBasicSearchTool(BaseTool):
                     "title": result.get("name"),
                     "rating": result.get("rating", 0),
                     "reviews": result.get("user_ratings_total", 0),
-                    "place_id": place_id,
                 }
         except Exception as e:
             print(f"[RestaurantBasicSearchTool] Details Error: {e}")
             return None
 
-    async def _arun(
-        self, location: str, coordinates: str, context: List[Dict] = None
-    ) -> List[Dict]:
-        existing_spots = (
-            context[0].get("existing_spots") if context and len(context) > 0 else None
-        )
+    async def _arun(self, location: str, coordinates: str) -> List[Dict]:
         url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
         all_candidates = []
         lat, lng = coordinates.split(",")
-
-        search_queries = [
-            f"{location} 맛집",
-            f"{location} 식당",
-            f"{location} 음식점",
-        ]
-
-        print(f"[구글맵 검색]: {search_queries}")
-
-        existing_place_ids = (
-            set()
-            if not existing_spots
-            else {spot["place_id"] for spot in existing_spots}
-        )
-        print(f"[DEBUG] Filtering with place_ids: {existing_place_ids}")
+        params = {
+            "query": f"{location} 맛집",
+            "language": "ko",
+            "type": "restaurant",
+            "location": f"{lat},{lng}",
+            "radius": "5000",
+            "key": GOOGLE_MAP_API_KEY,
+        }
 
         async def fetch_places(filter_rating: float, filter_reviews: int):
+            """특정 필터링 기준으로 Google Places API에서 식당 정보를 가져오는 함수"""
             candidates = []
-            for query in search_queries:
-                params = {
-                    "query": query,
-                    "language": "ko",
-                    "type": "restaurant",
-                    "location": f"{lat},{lng}",
-                    "radius": "8000",
-                    "key": GOOGLE_MAP_API_KEY,
-                }
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    data = await response.json()
+                    results = data.get("results", [])
+                    print(
+                        f"첫 요청 결과 수: {len(results)} (필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상)"
+                    )
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, params=params) as response:
-                        data = await response.json()
-                        results = data.get("results", [])
-                        print(f"[요청] 원본 결과 수: {len(results)}")
-                        print(
-                            f"[요청] 필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상"
-                        )
+                    for place in results:
+                        place_id = place.get("place_id")
+                        if place_id:
+                            details = await self.get_place_details(session, place_id)
+                            if (
+                                details
+                                and details["rating"] >= filter_rating
+                                and details["reviews"] >= filter_reviews
+                            ):
+                                candidates.append(details)
 
-                        filtered_count = 0
-                        rating_filtered = 0
-                        review_filtered = 0
-                        existing_filtered = 0
+                    next_page_token = data.get("next_page_token")
 
-                        for place in results:
-                            place_id = place.get("place_id")
-                            if place_id:
-                                details = await self.get_place_details(
-                                    session, place_id
-                                )
-                                if details:
-                                    print(f"[DEBUG] Checking place_id: {details['place_id']}")
-                                    print(f"[DEBUG] Is in existing?: {details['place_id'] in existing_place_ids}")
-                                    if details["rating"] < filter_rating:
-                                        rating_filtered += 1
-                                    elif details["reviews"] < filter_reviews:
-                                        review_filtered += 1
-                                    elif details["place_id"] in existing_place_ids:
-                                        existing_filtered += 1
-                                    else:
-                                        candidates.append(details)
-                                        filtered_count += 1
+                    # 추가 요청: 후보 수가 15개 미만이면 추가로 요청
+                    while next_page_token and len(candidates) < 15:
+                        try:
+                            await asyncio.sleep(3)  # next_page_token 유효 대기
+                            params["pagetoken"] = next_page_token
+                            async with session.get(url, params=params) as response:
+                                data = await response.json()
+                                new_results = data.get("results", [])
+                                print(f"추가 요청 결과 수: {len(new_results)}")
 
-                        print(f"[필터링 결과]")
-                        print(f"- 통과: {filtered_count}개")
-                        print(f"- 평점 미달: {rating_filtered}개")
-                        print(f"- 리뷰 수 미달: {review_filtered}개")
-                        print(f"- 기존 식당: {existing_filtered}개")
+                                for place in new_results:
+                                    if len(candidates) >= 40:
+                                        break
+                                    place_id = place.get("place_id")
+                                    if place_id:
+                                        details = await self.get_place_details(
+                                            session, place_id
+                                        )
+                                        if (
+                                            details
+                                            and details["rating"] >= filter_rating
+                                            and details["reviews"] >= filter_reviews
+                                        ):
+                                            candidates.append(details)
 
-                        next_page_token = data.get("next_page_token")
-
-                        while next_page_token and len(candidates) < 15:
-                            try:
-                                await asyncio.sleep(3)
-                                params["pagetoken"] = next_page_token
-                                async with session.get(url, params=params) as response:
-                                    data = await response.json()
-                                    new_results = data.get("results", [])
-                                    print(f"추가 요청 결과 수: {len(new_results)}")
-
-                                    for place in new_results:
-                                        if len(candidates) >= 40:
-                                            break
-                                        place_id = place.get("place_id")
-                                        if place_id:
-                                            details = await self.get_place_details(
-                                                session, place_id
-                                            )
-                                            if (
-                                                details
-                                                and details["rating"] >= filter_rating
-                                                and details["reviews"] >= filter_reviews
-                                                and details["place_id"]
-                                                not in existing_place_ids
-                                            ):
-                                                candidates.append(details)
-
-                                    next_page_token = data.get("next_page_token")
-                            except Exception as e:
-                                print(f"추가 페이지 요청 오류: {e}")
-                                break
+                                next_page_token = data.get("next_page_token")
+                        except Exception as e:
+                            print(f"추가 페이지 요청 오류: {e}")
+                            break
             return candidates
 
         try:
+            # 1차: 대도시 기준
             all_candidates = await fetch_places(4.0, 500)
 
+            # 결과가 15개 미만이면 중소도시 기준으로 추가 검색
             if len(all_candidates) < 15:
                 print(
                     "결과가 15개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 200개 이상)로 추가 검색"
                 )
                 additional_candidates = await fetch_places(3.5, 200)
+                # 새로운 결과를 기존 결과에 추가
                 all_candidates.extend(
                     [c for c in additional_candidates if c not in all_candidates]
                 )
 
+                # 여전히 15개 미만이면 외곽/지방 기준으로 추가 검색
                 if len(all_candidates) < 15:
                     print(
                         "결과가 여전히 15개 미만 → 필터링 조건 추가 완화 (평점 3.3 이상, 리뷰 100개 이상)로 추가 검색"
@@ -253,31 +255,16 @@ class RestaurantBasicSearchTool(BaseTool):
                         [c for c in additional_candidates if c not in all_candidates]
                     )
 
-                    if len(all_candidates) < 15:
-                        print(
-                            "결과가 여전히 15개 미만 → 최종 완화 (평점 3.0 이상, 리뷰 50개 이상)로 추가 검색"
-                        )
-                        additional_candidates = await fetch_places(3.0, 50)
-                        all_candidates.extend(
-                            [
-                                c
-                                for c in additional_candidates
-                                if c not in all_candidates
-                            ]
-                        )
-
             print(f"최종 수집된 맛집 수: {len(all_candidates)}")
         except Exception as e:
             print(f"[RestaurantBasicSearchTool] Search Error: {e}")
         return all_candidates
 
-    def _run(
-        self, location: str, coordinates: str, context: List[Dict] = None
-    ) -> List[Dict]:
-        return asyncio.run(self._arun(location, coordinates, context))
+    def _run(self, location: str, coordinates: str) -> List[Dict]:
+        return asyncio.run(self._arun(location, coordinates))
 
 
-# 3. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool
+# 4. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool
 class NaverWebSearchTool(BaseTool):
     name: str = "NaverWebSearch"
     description: str = "네이버 웹 검색 API를 사용해 식당의 상세 정보를 검색합니다."
@@ -336,7 +323,7 @@ class NaverWebSearchTool(BaseTool):
         return asyncio.run(self._arun(restaurant_list))
 
 
-# 4. 네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 조회하는 Tool
+# 5. 네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 조회하는 Tool
 class NaverImageSearchTool(BaseTool):
     name: str = "NaverImageSearch"
     description: str = (
@@ -380,21 +367,18 @@ class NaverImageSearchTool(BaseTool):
             print(f"네이버 이미지 검색 오류: {str(e)}")
             return "https://via.placeholder.com/300x200?text=Error"
 
-    async def _arun(self, restaurant_list: List[Dict]) -> Dict[str, str]:
-        # 딕셔너리 리스트를 문자열 리스트로 변환
-        restaurant_names = [restaurant["kor_name"] for restaurant in restaurant_list]
-
+    async def _arun(self, restaurant_list: List[str]) -> Dict[str, str]:
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurant_names:
+            for restaurant in restaurant_list:
                 results[restaurant] = await self.fetch(session, restaurant)
         return results
 
-    def _run(self, restaurant_list: List[Dict]) -> Dict[str, str]:
+    def _run(self, restaurant_list: List[str]) -> Dict[str, str]:
         return asyncio.run(self._arun(restaurant_list))
 
 
-# 5. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
+# 6. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
 class KakaoLocalSearchTool(BaseTool):
     name: str = "KakaoLocalSearch"
     description: str = "카카오 로컬 API를 사용해 식당의 위치 정보를 검색합니다."
@@ -450,9 +434,9 @@ class KakaoLocalSearchTool(BaseTool):
                             "phone_number": place.get("phone", ""),
                             # "category_name": place.get("category_name", ""),
                         }
-                        # print(
-                        #     f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
-                        # )
+                        print(
+                            f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
+                        )
                         return result
 
             except Exception as e:

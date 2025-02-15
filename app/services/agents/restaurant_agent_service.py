@@ -8,6 +8,7 @@ from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
 from app.services.agents.tools.restaurant_tool import (
+    KeywordExtractionTool,
     GeocodingTool,
     RestaurantBasicSearchTool,
     NaverWebSearchTool,
@@ -24,7 +25,6 @@ class RestaurantAgentService:
     """식당 추천을 위한 Agent 서비스"""
 
     _instance = None
-    _place_id_cache = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -35,7 +35,7 @@ class RestaurantAgentService:
     def initialize(self):
         """서비스 초기화"""
         # print("RestaurantAgentService 초기화 중...")
-        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
+        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
         self.restaurant_search_tool = RestaurantBasicSearchTool()
@@ -43,14 +43,6 @@ class RestaurantAgentService:
         self.image_search_tool = NaverImageSearchTool()
         self.kakao_local_search_tool = KakaoLocalSearchTool()
         self.agents = self._create_agents()
-
-    def _cache_place_ids(self, location: str, place_ids: List[str]):
-        """장소 ID들을 캐시에 저장"""
-        self._place_id_cache[location] = place_ids
-
-    def _get_cached_place_ids(self, location: str) -> List[str]:
-        """캐시된 장소 ID들을 조회"""
-        return self._place_id_cache.get(location, [])
 
     def _process_input(
         self, input_data: dict, prompt: Optional[str] = None
@@ -89,6 +81,15 @@ class RestaurantAgentService:
     def _create_agents(self) -> Dict[str, Agent]:
         """Agent들을 생성하는 메서드"""
         return {
+            "keyword_extraction": Agent(
+                role="키워드 추출 전문가",
+                goal="여행 정보와 프롬프트에서 맛집 검색에 필요한 핵심 키워드를 추출합니다.",
+                backstory="나는 자연어 처리 전문가로, 사용자의 요구사항에서 핵심 키워드를 추출하여 맛집 검색의 정확도를 높입니다.",
+                tools=[KeywordExtractionTool()],
+                llm=self.llm,
+                verbose=True,
+                async_execution=True,
+            ),
             "geocoding": Agent(
                 role="좌표 조회 전문가",
                 goal="사용자가 입력한 location(예: '부산광역시')의 위도와 경도를 조회하며, location 값은 그대로 유지한다.",
@@ -139,11 +140,14 @@ class RestaurantAgentService:
             ),
         }
 
-    def _create_tasks(
-        self, input_data: dict, prompt_text: str, existing_spots: List[Dict] = None
-    ) -> List[Task]:
+    def _create_tasks(self, input_data: dict, prompt_text: str) -> List[Task]:
         """Task들을 생성하는 메서드"""
         return [
+            Task(
+                description=f"여행 정보와 프롬프트에서 키워드 추출",
+                agent=self.agents["keyword_extraction"],
+                expected_output="검색 키워드",
+            ),
             Task(
                 description=f"{input_data['main_location']}의 좌표 조회",
                 agent=self.agents["geocoding"],
@@ -153,7 +157,6 @@ class RestaurantAgentService:
                 description="맛집 기본 정보 조회",
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
-                context=[{"existing_spots": existing_spots}] if existing_spots else [],
             ),
             Task(
                 description=f"""{input_data['main_location']} 지역의 맛집 데이터를 최신 검색 결과를 활용하여 수집하고,
@@ -327,44 +330,26 @@ class RestaurantAgentService:
         }
 
     async def create_recommendation(
-        self,
-        input_data: dict,
-        prompt: Optional[str] = None,
-        existing_spots: Optional[List[Dict]] = None,
+        self, input_data: dict, prompt: Optional[str] = None
     ) -> dict:
         """추천 워크플로우를 실행하는 메서드"""
         try:
-            location = input_data["main_location"]
-
-            # 프롬프트가 있는 경우 (수정 요청), 캐시된 place_id들을 existing_spots로 전달
-            if prompt:
-                cached_place_ids = self._get_cached_place_ids(location)
-                if cached_place_ids:
-                    existing_spots = [{"place_id": pid} for pid in cached_place_ids]
-                    print(f"[DEBUG] Using cached place_ids: {cached_place_ids}")
-
+            # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
-            tasks = self._create_tasks(processed_input, prompt_text, existing_spots)
-            crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True, memory=True)
+
+            # 2. Task 생성
+            tasks = self._create_tasks(processed_input, prompt_text)
+
+            # 3. Crew 실행
+            crew = Crew(
+                tasks=tasks,
+                agents=list(self.agents.values()),
+                verbose=True,
+                memory=True,
+            )
+
+            # 4. 결과 처리
             result = await crew.kickoff_async()
-
-           # 프롬프트가 없는 경우 (첫 요청), place_id들을 캐시에 저장
-            if not prompt and hasattr(result, "tasks_output") and result.tasks_output:
-                try:
-                    # restaurant_search의 결과는 tasks_output[1]에 있음
-                    restaurant_results = result.tasks_output[1]
-                    if restaurant_results and isinstance(restaurant_results, list):
-                        place_ids = []
-                        for spot in restaurant_results:
-                            if isinstance(spot, dict) and spot.get("place_id"):
-                                place_ids.append(spot["place_id"])
-                        
-                        if place_ids:  # place_ids가 비어있지 않은 경우에만 캐시에 저장
-                            self._cache_place_ids(location, place_ids)
-                            print(f"[DEBUG] Cached place_ids: {place_ids}")
-                except Exception as e:
-                    print(f"[WARNING] Failed to cache place_ids: {e}")
-
             return self._process_result(result, processed_input)
 
         except Exception as e:
