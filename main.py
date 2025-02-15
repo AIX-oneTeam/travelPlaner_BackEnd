@@ -45,7 +45,6 @@ logger.info("💡로그 설정 완료")
 # FastAPI 애플리케이션 생성
 app = FastAPI(lifespan=lifespan)
 
-
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,

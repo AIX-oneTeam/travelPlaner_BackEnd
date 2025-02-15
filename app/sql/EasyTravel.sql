@@ -64,12 +64,11 @@ CREATE TABLE `spot` (
     `eng_name` VARCHAR(255) NULL,
     `description` VARCHAR(255) NOT NULL,
     `address` VARCHAR(255) NOT NULL,
-    `zip` CHAR(10) NOT NULL,
     `url` VARCHAR(2083) NULL,
     `image_url` VARCHAR(2083) NOT NULL,
     `map_url` VARCHAR(2083) NOT NULL,
-    `likes` INT NULL,
-    `satisfaction` FLOAT NULL,
+    `latitude` Double NULL,
+    `longitude` Double NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
     `spot_category` INT NOT NULL,
@@ -81,6 +80,7 @@ CREATE TABLE `spot` (
 
 -- 중간 테이블
 CREATE TABLE `plan_spot_map` (
+    `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     `plan_id` INT NOT NULL,
     `spot_id` INT NOT NULL,
     `day_x` INT NOT NULL,

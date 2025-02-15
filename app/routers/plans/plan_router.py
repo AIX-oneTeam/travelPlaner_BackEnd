@@ -35,10 +35,7 @@ class spot_request(BaseModel):
     map_url: str = Field(max_length=2083)
     longitude: float
     latitude: float
-    likes: int | None = None
-    satisfaction: float | None = None
     spot_category: int
-
     phone_number: str | None = Field(default=None, max_length=300)
     business_status: bool | None = None
     business_hours: str | None = Field(default=None, max_length=255)
