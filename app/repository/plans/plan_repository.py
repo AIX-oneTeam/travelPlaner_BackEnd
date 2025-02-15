@@ -95,6 +95,7 @@ async def delete_plan(plan_id: int, session: AsyncSession):
         if plan is None:
             raise ValueError(f"ID가 {plan_id}인 Plan을 찾을 수 없습니다.")
         await session.delete(plan)
+        session.commit()
         return True
     except Exception as e:
         logger.error(f"[ plan_repository ] delete_plan() 에러 : {e}")

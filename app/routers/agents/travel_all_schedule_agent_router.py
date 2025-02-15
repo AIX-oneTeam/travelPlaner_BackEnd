@@ -8,10 +8,10 @@ from app.services.agents.travel_all_schedule_agent_service import (
     TravelScheduleAgentService,
 )
 from app.services.agents.site_agent_service import TouristAgentService
-from app.services.agents.accommodation_agent_4 import run
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
 from app.services.agents.accommodation_agent_service2 import AccommodationAgentService
+import logging
 
 router = APIRouter()
 
@@ -68,7 +68,7 @@ async def generate_plan(
 
         # 집계한 external_data를 입력 데이터에 추가합니다.
         input_dict["external_data"] = external_data
-
+        logging.info(f"라우터받은 데이터----------------: {input_dict}")
         # 최종 여행 일정 생성 함수 호출 (외부 데이터가 포함된 상태)
         result = await travel_schedule_agent_service.create_plan(input_dict)
 
