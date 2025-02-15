@@ -63,72 +63,7 @@ async def check_url_openable_async(url: str) -> bool:
         print(f"Error checking URL '{url}': {e}")
         return False
 
-
-# # 1. 키워드 추출 Tool
-# class KeywordExtractionTool(BaseTool):
-#     name: str = "KeywordExtractionTool"
-#     description: str = (
-#         "여행 정보와 프롬프트에서 맛집 검색에 사용할 최적의 검색 키워드 3개를 추출합니다."
-#     )
-
-#     async def _arun(
-#         self,
-#         main_location: str,
-#         start_date: str,
-#         end_date: str,
-#         ages: str,
-#         companion_data: List[Dict],
-#         prompt_text: str,
-#     ) -> List[str]:
-#         try:
-#             # companion_data 처리
-#             companions = [f"{c['label']} {c['count']}명" for c in companion_data]
-
-#             # LLM에게 전달할 프롬프트
-#             system_prompt = f"""
-#             다음 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
-
-#             지역: {main_location}
-#             여행 기간: {start_date} ~ {end_date}
-#             연령대: {ages}
-#             동반자: {', '.join(companions)}
-#             요청사항: {prompt_text}
-
-#             규칙:
-#             1. 정확히 3개의 검색 키워드를 생성할 것
-#             2. 각 키워드는 "지역명 + 목적" 형식으로 구성할 것
-#             3. 실제 검색에 효과적인 구체적인 키워드로 구성할 것
-#             4. 반환 형식은 리스트로 할 것
-
-#             예시 입력:
-#             지역: 해운대구
-#             요청사항: "해산물을 좋아하는데, 회를 먹고 싶어요. 저녁에는 분위기 있는 술집도 가고 싶습니다."
-
-#             예시 출력:
-#             [
-#                 "해운대 회맛집",
-#                 "해운대 대게요리",
-#                 "해운대 분위기 술집"
-#             ]
-#             """
-
-#             # LLM 응답 활용하여 검색 키워드 생성
-#             search_keywords = [
-#                 "검색 키워드 1",
-#                 "검색 키워드 2",
-#                 "검색 키워드 3",
-#             ]  # LLM 응답으로 대체
-#             return search_keywords
-
-#         except Exception as e:
-#             print(f"키워드 추출 오류: {str(e)}")
-#             return []
-
-#     def _run(self, **kwargs) -> List[str]:
-#         return asyncio.run(self._arun(**kwargs))
-
-
-# 2. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
+# 1. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
 class GeocodingTool(BaseTool):
     name: str = "GeocodingTool"
     description: str = (
@@ -156,7 +91,7 @@ class GeocodingTool(BaseTool):
         return asyncio.run(self._arun(location))
 
 
-# 3. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
+# 2. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
 class RestaurantBasicSearchTool(BaseTool):
     name: str = "RestaurantBasicSearchTool"
     description: str = (
@@ -195,8 +130,10 @@ class RestaurantBasicSearchTool(BaseTool):
 
         # 각 검색 키워드별로 검색 수행
         for keyword in search_keywords:
+            # 원래 키워드에서 지역 구분자 "부산광역시 - " 제거
+            simplified_keyword = keyword.split(" - ")[-1]
             params = {
-                "query": keyword,  # 키워드 추출 에이전트가 생성한 키워드 사용
+                "query": simplified_keyword,
                 "language": "ko",
                 "type": "restaurant",
                 "location": f"{lat},{lng}",
@@ -315,7 +252,7 @@ class RestaurantBasicSearchTool(BaseTool):
         return asyncio.run(self._arun(coordinates, search_keywords))
 
 
-# 4. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool
+# 3. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool
 class NaverWebSearchTool(BaseTool):
     name: str = "NaverWebSearch"
     description: str = "네이버 웹 검색 API를 사용해 식당의 상세 정보를 검색합니다."
@@ -374,7 +311,7 @@ class NaverWebSearchTool(BaseTool):
         return asyncio.run(self._arun(restaurant_list))
 
 
-# 5. 네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 조회하는 Tool
+# 4. 네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 조회하는 Tool
 class NaverImageSearchTool(BaseTool):
     name: str = "NaverImageSearch"
     description: str = (
@@ -429,7 +366,7 @@ class NaverImageSearchTool(BaseTool):
         return asyncio.run(self._arun(restaurant_list))
 
 
-# 6. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
+# 5. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
 class KakaoLocalSearchTool(BaseTool):
     name: str = "KakaoLocalSearch"
     description: str = "카카오 로컬 API를 사용해 식당의 위치 정보를 검색합니다."
