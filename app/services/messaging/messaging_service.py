@@ -1,20 +1,23 @@
 from pyfcm import FCMNotification
 from dotenv import load_dotenv
+import base64
+import json
 import os
 
 load_dotenv()
-FCM_API_KEY = os.getenv("FCM_API_KEY")
-FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID")
-PUSH_SERVICE = FCMNotification(project_id=FCM_PROJECT_ID)
 
+FCM_SERVICE_ACCOUNT_JSON = "./services/messaging/easytravel-8cf1e-firebase-adminsdk-fbsvc-b1ba2a4a9c.json"
+FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID")
+
+push_service = FCMNotification(service_account_file=FCM_SERVICE_ACCOUNT_JSON, project_id=FCM_PROJECT_ID)
 
 def send_push_message(token: str, title: str, body: str, link: str):
-
     
-    result = PUSH_SERVICE.notify_single_device(
-        registration_id=token,
-        message_title=title,
-        message_body=body,
+    result = push_service.notify(
+        fcm_token=token,
+        notification_title=title,
+        notification_body=body,
+        notification_image=link,
     )
     return result
 

@@ -129,7 +129,7 @@ class TouristAgentService:
             "}"
         )
         task1_description = (
-            f"'{input_data['main_location']}' 지역의 관광지 추천을 위해 아래 요구사항을 충족하는 관광지를 최소 5곳 추천하라.\n"
+            f"'{input_data['main_location']}' 지역의 관광지 추천을 위해 아래 요구사항을 충족하는 관광지를 최소 10곳 추천하라.\n"
             "요구사항:\n"
             f"- 여행 기간: {input_data['start_date']}부터 {input_data['end_date']}까지\n"
             f"- 연령대: {input_data['ages']}\n"

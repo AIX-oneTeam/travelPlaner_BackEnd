@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from app.utils.time_check import time_check
 from app.services.agents.tools.all_schedule_agent_tool import HaversineRouteOptimizer
+import logging
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -23,7 +24,6 @@ class TravelScheduleAgentService:
         return cls._instance
 
     def initialize(self):
-        print("TravelScheduleAgentService 초기화 중...")
         self.llm = llm
         self.route_tool = HaversineRouteOptimizer()
         self.agents = self._create_agents()
@@ -39,44 +39,75 @@ class TravelScheduleAgentService:
                 tools=[self.route_tool],
                 llm=self.llm,
                 verbose=True,
-                max_iter=1,
+                
             )
         }
 
     def _create_tasks(self) -> List[Task]:
-        """Task들을 생성하는 메서드"""
+        """최종 여행 일정 생성을 위한 Task 생성: 여행 기간 내 각 날짜마다 08:00, 12:00, 18:00의 고정 시간 슬롯을 순차적으로 적용"""
         task_description = """
         [최종 여행 일정 생성]
+
+        입력:
         - 여행 기간: {start_date} ~ {end_date}
-        - external_data에는 다음 세 가지 카테고리의 장소들이 포함되어 있습니다:
-        1. restaurant: 맛집 목록
-        2. cafe: 카페 목록
-        3. site: 관광지 목록
-        
-        - day_x: 방문 날짜
-        - order: 해당 날짜의 방문 순서
-        -spot_time: 해당 스팟의 방문 추천 시간.
+        - 여행 지역: {main_location}
+        - 외부 데이터: {external_data}
+        - 사용 가능한 카테고리: restaurant, cafe, site, accommodation (제공된 카테고리만 사용)
 
-        일정 구성 필수 규칙:
-        1. 아침 일정 (08:00)
-        - site(관광지) 목록에서 1곳 선택
-        - cafe(카페) 목록에서 1곳 선택
+        규칙 및 조건:
+        1. 전체 여행 기간 계산 및 날짜별 처리:
+            - 사용자 입력인 {start_date}부터 {end_date}까지 전체 여행 기간을 계산합니다.
+            - 각 날짜는 day_x 값으로 1부터 순차적으로 할당됩니다.
+            - 각 날짜에 대해 반드시 아래의 3개 고정 시간 슬롯이 순서대로 처리됩니다: 08:00, 12:00, 18:00.
+            - 한 날짜의 모든 시간 슬롯 처리가 완료된 후에 다음 날짜로 넘어갑니다.
+            - 새로운 날짜가 시작되면 order 값은 1로 초기화되며, 이전 날짜에서 사용된 장소는 재사용되지 않습니다.
 
-        2. 점심 일정 (12:00)
-        - restaurant(맛집) 목록에서 1곳 선택
-        - site(관광지) 목록에서 2곳 선택
+        2. [TIME SLOT CONSTRUCTION] - **고정된 시간 슬롯 사용 (08:00, 12:00, 18:00)**
+            a. 아침 (08:00):
+                - 조건: site 카테고리와 cafe 카테고리가 모두 존재할 때만 생성.
+                - 동작:
+                    * site 데이터에서 1곳 선택.
+                    * cafe 데이터에서 1곳 선택.
+                - 할당: spot_time은 "08:00"으로 고정.
 
-        3. 저녁 일정 (18:00)
-        - restaurant(맛집) 목록에서 1곳 선택
-        - 숙소가 있다면 포함
-        중요 제약사항:
-        - 각 카테고리(restaurant, cafe, site)별로 제공된 데이터만 사용할 것
-        - 새로운 장소를 임의로 생성하지 말 것
-        - 필요한 카테고리의 데이터가 부족하면 해당 시간대는 비워둘 것
-        - 이동 거리와 시간을 고려하여 효율적인 동선으로 구성할 것
-        - 각 장소는 중복 사용하지 않을 것
+            b. 점심 (12:00):
+                - 조건: restaurant 카테고리와 site 카테고리가 모두 존재할 때만 생성.
+                - 동작:
+                    * restaurant 데이터에서 1곳 선택.
+                    * site 데이터에서 2곳 선택.
+                - 할당: spot_time은 "12:00"으로 고정.
 
-        External Data: {external_data}
+            c. 저녁 (18:00):
+                - 조건:
+                    IF restaurant 카테고리와 accommodation 카테고리가 모두 존재하면:
+                    - 동작:
+                        * restaurant 데이터에서 1곳 선택.
+                        * (마지막 날 제외) accommodation 데이터에서 1곳 선택.
+                    ELSE IF restaurant 카테고리만 존재하면:
+                    - 동작:
+                        * restaurant에서 1곳만 선택.
+                - 할당: spot_time은 "18:00"으로 고정.
+
+        3. [OPTIMIZATION REQUIREMENTS]
+            - 위치 기반 최적화: 제공된 장소들의 위도/경도 정보를 route_tool을 사용하여 이동 거리를 최소화합니다.
+            - 순서 할당:
+                * day_x: 각 날짜별로 1부터 순차적으로 할당.
+                * order: 해당 날짜 내 실제 할당된 시간 슬롯 순서대로 1부터 순차적으로 할당.
+                * spot_time: 위에서 명시한 대로 각각 "08:00", "12:00", "18:00"으로 고정.
+
+        4. [CONSTRAINTS]
+            - 모든 장소는 한 번만 사용됩니다.
+            - 필요한 카테고리가 없는 시간 슬롯은 완전히 생략합니다.
+            - 선택되지 않은 카테고리는 고려하지 않습니다.
+            - 마지막 날에는 숙소(accommodation)가 포함되지 않습니다.
+
+        [PROCESS]
+        1. {external_data}에서 사용 가능한 카테고리 확인.
+        2. 가능한 시간 슬롯 조합 결정.
+        3. 각 시간 슬롯별로 장소 할당 (시간 슬롯은 반드시 "08:00", "12:00", "18:00"으로 고정).
+        4. 위치 기반 최적 경로 계산.
+        5. day_x, order, spot_time 값 할당.
+        6. 최종 일정 생성 및 검증.
         """
         return [Task(
             description=task_description,
@@ -85,6 +116,8 @@ class TravelScheduleAgentService:
             output_pydantic=spots_pydantic,
             async_execution=True,
         )]
+
+
 
     def _process_result(self, result, input_dict: dict) -> dict:
         """결과를 처리하는 메서드"""
@@ -103,6 +136,8 @@ class TravelScheduleAgentService:
     async def create_plan(self, input_dict: dict) -> dict:
         """여행 일정 생성 워크플로우 실행"""
         try:
+            logging.info(f"받은 데이터: {input_dict}")
+
             # Task 생성
             tasks = self._create_tasks()
             
