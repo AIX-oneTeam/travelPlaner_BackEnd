@@ -1,3 +1,4 @@
+import logging
 import os
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -16,7 +17,6 @@ from app.services.messaging.messaging_service import send_push_message
 
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
-
 load_dotenv()
 
 
@@ -81,8 +81,10 @@ async def generate_plan(
 
         # 푸시 메시지 전송
         # 테스트용 하드코딩
-        token = os.getenv("TEST_TOKEN")
-        send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.", link="https://easyTravel.jomalang.com")
+        try:
+            send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
+        except Exception as e:
+            logging.error(f"푸시 메시지 전송 오류: {e}")
 
         return {
             "status": "success",

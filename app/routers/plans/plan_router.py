@@ -1,5 +1,4 @@
 from datetime import time
-from typing import List
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from app.repository.db import get_async_session
@@ -9,6 +8,7 @@ from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.repository.plans.plan_spots_repository import save_plan_spots
 from app.repository.spots.spot_repository import delete_spot
 from app.services.checklists.checklist_service import  read_checklist_service,delete_checklist_service,save_checklist_service
+from app.services.messaging.messaging_service import send_push_message
 from app.services.plans.plan_service import edit_plan, find_member_plans, find_plan, reg_plan
 from app.services.plans.plan_spots_service import find_plan_spots
 from app.services.spots.spot_service import reg_spot
@@ -16,12 +16,11 @@ from app.repository.plans.plan_repository import delete_plan
 import logging
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+
 logging.basicConfig()
 logging.getLogger("sqlalchemy.engine").setLevel(logging.DEBUG)
 logging.getLogger("sqlalchemy.pool").setLevel(logging.DEBUG)
 logging.getLogger("sqlalchemy.orm").setLevel(logging.DEBUG)
-
-
 
 router = APIRouter()
 
@@ -90,6 +89,7 @@ async def read_member_plans(request: Request, session: AsyncSession = Depends(ge
             return ErrorResponse(message="로그인이 필요합니다.")
         plans = await find_member_plans(member_id, session)
         print("💡[ plan_router ] plans : ", plans)
+
         return SuccessResponse(data=plans, message="멤버의 일정 정보가 성공적으로 조회되었습니다.")
     except Exception as e:
         return ErrorResponse(message="멤버의 일정정보 조회에 실패했습니다.", error_detail=e)

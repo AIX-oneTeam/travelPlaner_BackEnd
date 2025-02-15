@@ -34,7 +34,7 @@ class RestaurantAgentService:
     def initialize(self):
         """서비스 초기화"""
         # print("RestaurantAgentService 초기화 중...")
-        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
+        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
         self.restaurant_search_tool = RestaurantBasicSearchTool()
