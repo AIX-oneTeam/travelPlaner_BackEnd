@@ -1,11 +1,13 @@
 import logging
 import os
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import asyncio
 
 # 서비스 클래스 임포트
+from app.repository.db import get_async_session
+from app.repository.fcmToken.fcm_token_respository import get_fcm_token
 from app.services.agents.travel_all_schedule_agent_service import (
     TravelScheduleAgentService,
 )
@@ -13,7 +15,10 @@ from app.services.agents.site_agent_service import TouristAgentService
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
 from app.services.agents.accommodation_agent_service2 import AccommodationAgentService
+from app.services.members.member_service import get_member_id_by_request
 from app.services.messaging.messaging_service import send_push_message
+
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
@@ -42,8 +47,10 @@ class TravelPlanRequest(BaseModel):
 
 @router.post("/plan")
 async def generate_plan(
+    request: Request,
     user_input: TravelPlanRequest,
     agent_type: List[str] = Query(..., alias="agent_type[]"),
+    session: AsyncSession = Depends(get_async_session),
 ):
     try:
         print("프론트에서 받은 데이터:", user_input)
@@ -80,9 +87,11 @@ async def generate_plan(
         result = await travel_schedule_agent_service.create_plan(input_dict)
 
         # 푸시 메시지 전송
-        # 테스트용 하드코딩
         try:
-            send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
+            member_id = await get_member_id_by_request(request)
+            if member_id is not None:
+                token = await get_fcm_token(member_id, session)
+                send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
         except Exception as e:
             logging.error(f"푸시 메시지 전송 오류: {e}")
 

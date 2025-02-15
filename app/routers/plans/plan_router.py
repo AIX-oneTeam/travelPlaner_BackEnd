@@ -1,13 +1,15 @@
 from datetime import time
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from app.repository.db import get_async_session
 from app.data_models.data_model import Checklist, Plan, Spot
 from app.dtos.common.response import ErrorResponse, SuccessResponse
+from app.repository.fcmToken.fcm_token_respository import get_fcm_token
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.repository.plans.plan_spots_repository import save_plan_spots
 from app.repository.spots.spot_repository import delete_spot
 from app.services.checklists.checklist_service import  read_checklist_service,delete_checklist_service,save_checklist_service
+from app.services.members.member_service import get_member_id_by_request
 from app.services.messaging.messaging_service import send_push_message
 from app.services.plans.plan_service import edit_plan, find_member_plans, find_plan, reg_plan
 from app.services.plans.plan_spots_service import find_plan_spots
@@ -79,12 +81,22 @@ async def create_plan(request_data: PlanRequest, request: Request, session: Asyn
 # 일정 조회
 # 회원의 모든 일정만 리스트 조회
 @router.get("")
-async def read_member_plans(request: Request, session: AsyncSession = Depends(get_async_session)):
+async def read_member_plans(request: Request, session: AsyncSession = Depends(get_async_session), email: str = Query(...)):
     try:
         if(request.state.user is not None):
             member_email = request.state.user.get("email")
             member_id = await get_memberId_by_email(member_email, session)
             print("💡[ plan_router ] member_id : ", member_id)
+        # 푸시 메시지 전송
+        # TODO: 테스트용 코드. 배포 전에 반드시 삭제할 것.
+        try:
+            member_id = await get_member_id_by_request(request)
+            if member_id is None:
+                member_id = await get_memberId_by_email(email, session)
+            token = await get_fcm_token(member_id, session)
+            send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
+        except Exception as e:
+            logging.error(f"푸시 메시지 전송 오류: {e}")
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         plans = await find_member_plans(member_id, session)

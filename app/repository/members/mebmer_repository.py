@@ -39,3 +39,6 @@ async def is_exist_member_by_email(email: str, oauth: str, session: AsyncSession
         return True if not member == None else False
     except Exception as e:
         logger.error(f"[ memberRepository ] is_exist_member_by_email() 에러 : {e}")
+
+
+        
