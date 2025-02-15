@@ -149,7 +149,7 @@ class PlanSpotTagMap(SQLModel, table=True):
 
 class Checklist(SQLModel, table=True):
     __tablename__ = "checklist"
-    id: int | None = Field(default=None, primary_key=True)
+    id: str = Field(default=None, primary_key=True)
     plan_id: int = Field(foreign_key="plan.id")
     item: Optional[str] = Field(default=None, max_length=255)
     checked: Optional[bool] = None
