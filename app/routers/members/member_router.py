@@ -1,5 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request, Response
+from litellm import BaseModel
 from app.dtos.common.response import ErrorResponse, SuccessResponse
 from app.repository.db import get_async_session
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -8,6 +9,12 @@ from app.repository.fcmToken.fcm_token_respository import save_fcm_token
 from app.repository.members.mebmer_repository import get_memberId_by_email
 
 router = APIRouter()
+
+
+# TODO: 테스트용 코드. 배포 전에 반드시 삭제할 것.
+class FcmTokenRequest(BaseModel):
+    fcm_token: str
+    email: str
 
 @router.get("/logout")
 async def logout(response: Response):
@@ -20,7 +27,7 @@ async def logout(response: Response):
     return {"message": "로그아웃 되었습니다."}
 
 @router.post("/fcmToken")
-async def reg_fcm_token(request: Request, fcm_token: str, email:Optional[str] = Query(...), session: AsyncSession = Depends(get_async_session)):
+async def reg_fcm_token(request: Request, fcm_token_request: FcmTokenRequest, session: AsyncSession = Depends(get_async_session)):
     """_summary_
 
     Args:
@@ -32,10 +39,10 @@ async def reg_fcm_token(request: Request, fcm_token: str, email:Optional[str] = 
             member_id = await get_memberId_by_email(member_email, session)
             print("💡[ member_router ] member_id : ", member_id)
         else:
-            member_id = await get_memberId_by_email(email, session)
+            member_id = await get_memberId_by_email(fcm_token_request.email, session)
             print("💡[ member_router ] member_id : ", member_id)
         # 1. 토큰 저장
-        await save_fcm_token(member_id, fcm_token, session)
+        await save_fcm_token(member_id, fcm_token_request.fcm_token, session)
         return SuccessResponse(message="토큰 저장에 성공했습니다.")
     except Exception as e:
         return ErrorResponse(message="토큰 저장에 실패했습니다.", error_detail=e)
