@@ -8,7 +8,7 @@ from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
 from app.services.agents.tools.restaurant_tool import (
-    KeywordExtractionTool,
+    # KeywordExtractionTool,
     GeocodingTool,
     RestaurantBasicSearchTool,
     NaverWebSearchTool,
@@ -81,15 +81,6 @@ class RestaurantAgentService:
     def _create_agents(self) -> Dict[str, Agent]:
         """Agent들을 생성하는 메서드"""
         return {
-            "keyword_extraction": Agent(
-                role="키워드 추출 전문가",
-                goal="여행 정보와 프롬프트에서 맛집 검색에 필요한 핵심 키워드를 추출합니다.",
-                backstory="나는 자연어 처리 전문가로, 사용자의 요구사항에서 핵심 키워드를 추출하여 맛집 검색의 정확도를 높입니다.",
-                tools=[KeywordExtractionTool()],
-                llm=self.llm,
-                verbose=True,
-                async_execution=True,
-            ),
             "geocoding": Agent(
                 role="좌표 조회 전문가",
                 goal="사용자가 입력한 location(예: '부산광역시')의 위도와 경도를 조회하며, location 값은 그대로 유지한다.",
@@ -99,6 +90,17 @@ class RestaurantAgentService:
                 verbose=True,
                 async_execution=True,
             ),
+            "keyword_extraction": Agent(
+                role="키워드 추출 전문가",
+                goal="여행 정보와 프롬프트에서 맛집 검색에 필요한 정확히 3개의 핵심 키워드를 추출합니다.",
+                backstory="""나는 자연어 처리 전문가로, 사용자의 요구사항에서 핵심 키워드를 추출하여 맛집 검색의 정확도를 높입니다.
+                각 키워드는 '지역명 + 목적' 형식으로 구성하며, 실제 검색에 효과적인 구체적인 키워드만을 사용합니다.""",
+                tools=[],
+                llm=self.llm,
+                verbose=True,
+                async_execution=True,
+                memory=True,
+            ),
             "restaurant_search": Agent(
                 role="맛집 기본 조회 전문가",
                 goal="좌표 정보를 활용하여 식당의 기본 정보를 조회한다.",
@@ -107,6 +109,7 @@ class RestaurantAgentService:
                 llm=self.llm,
                 verbose=True,
                 async_execution=True,
+                memory=True,
             ),
             "final_recommendation": Agent(
                 role="최종 추천 에이전트",
@@ -144,14 +147,32 @@ class RestaurantAgentService:
         """Task들을 생성하는 메서드"""
         return [
             Task(
-                description=f"여행 정보와 프롬프트에서 키워드 추출",
-                agent=self.agents["keyword_extraction"],
-                expected_output="검색 키워드",
-            ),
-            Task(
                 description=f"{input_data['main_location']}의 좌표 조회",
                 agent=self.agents["geocoding"],
                 expected_output="위치 좌표",
+            ),
+            Task(
+                description=f"""이전 Task에서 얻은 좌표와 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
+                # 입력 정보
+                지역: {input_data['main_location']}
+                좌표: 이전 태스크에서 생성된 좌표 결과
+                여행 기간: {input_data['start_date']} ~ {input_data['end_date']}
+                연령대: {input_data['ages']}
+                동반자: {', '.join([f"{c['label']} {c['count']}명" for c in input_data['companion_count']])}
+                요청사항: {prompt_text}
+
+                # 규칙
+                1. 정확히 3개의 검색 키워드를 생성할 것
+                2. 각 키워드는 "{input_data['main_location']} + 목적" 형식으로 구성할 것
+                3. 실제 검색에 효과적인 구체적인 키워드로 구성할 것
+                4. 반환 형식은 다음과 같이 할 것:
+                {{
+                    "coordinates": "이전 Task의 coordinates 값을 그대로 전달",
+                    "keywords": ["키워드1", "키워드2", "키워드3"]
+                }}
+                """,
+                agent=self.agents["keyword_extraction"],
+                expected_output="좌표와 3개의 맛집 검색 키워드",
             ),
             Task(
                 description="맛집 기본 정보 조회",

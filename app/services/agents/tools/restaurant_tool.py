@@ -63,45 +63,69 @@ async def check_url_openable_async(url: str) -> bool:
         print(f"Error checking URL '{url}': {e}")
         return False
 
-# 1. 키워드 추출 Tool
-class KeywordExtractionTool(BaseTool):
-    name: str = "KeywordExtractionTool"
-    description: str = (
-        "사용자의 여행 정보와 프롬프트에서 식당 검색에 필요한 키워드를 추출합니다."
-    )
 
-    async def _arun(
-        self,
-        start_date: str,
-        end_date: str,
-        ages: str,
-        companion_data: List[Dict],
-        concepts: List[str],
-        prompt_text: str,
-    ) -> Dict:
-        """
-        여행 정보와 프롬프트에서 키워드 추출
-        """
-        try:
-            # companion_data 처리
-            companions = [f"{c['label']} {c['count']}명" for c in companion_data]
+# # 1. 키워드 추출 Tool
+# class KeywordExtractionTool(BaseTool):
+#     name: str = "KeywordExtractionTool"
+#     description: str = (
+#         "여행 정보와 프롬프트에서 맛집 검색에 사용할 최적의 검색 키워드 3개를 추출합니다."
+#     )
 
-            base_data = {
-                "travel_dates": f"{start_date}~{end_date}",
-                "age_group": ages,
-                "companions": companions,
-                "concepts": concepts,
-                "prompt": prompt_text,
-            }
+#     async def _arun(
+#         self,
+#         main_location: str,
+#         start_date: str,
+#         end_date: str,
+#         ages: str,
+#         companion_data: List[Dict],
+#         prompt_text: str,
+#     ) -> List[str]:
+#         try:
+#             # companion_data 처리
+#             companions = [f"{c['label']} {c['count']}명" for c in companion_data]
 
-            return base_data
+#             # LLM에게 전달할 프롬프트
+#             system_prompt = f"""
+#             다음 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
 
-        except Exception as e:
-            print(f"키워드 추출 오류: {str(e)}")
-            return {}
+#             지역: {main_location}
+#             여행 기간: {start_date} ~ {end_date}
+#             연령대: {ages}
+#             동반자: {', '.join(companions)}
+#             요청사항: {prompt_text}
 
-    def _run(self, **kwargs) -> Dict:
-        return asyncio.run(self._arun(**kwargs))
+#             규칙:
+#             1. 정확히 3개의 검색 키워드를 생성할 것
+#             2. 각 키워드는 "지역명 + 목적" 형식으로 구성할 것
+#             3. 실제 검색에 효과적인 구체적인 키워드로 구성할 것
+#             4. 반환 형식은 리스트로 할 것
+
+#             예시 입력:
+#             지역: 해운대구
+#             요청사항: "해산물을 좋아하는데, 회를 먹고 싶어요. 저녁에는 분위기 있는 술집도 가고 싶습니다."
+
+#             예시 출력:
+#             [
+#                 "해운대 회맛집",
+#                 "해운대 대게요리",
+#                 "해운대 분위기 술집"
+#             ]
+#             """
+
+#             # LLM 응답 활용하여 검색 키워드 생성
+#             search_keywords = [
+#                 "검색 키워드 1",
+#                 "검색 키워드 2",
+#                 "검색 키워드 3",
+#             ]  # LLM 응답으로 대체
+#             return search_keywords
+
+#         except Exception as e:
+#             print(f"키워드 추출 오류: {str(e)}")
+#             return []
+
+#     def _run(self, **kwargs) -> List[str]:
+#         return asyncio.run(self._arun(**kwargs))
 
 
 # 2. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
@@ -136,7 +160,7 @@ class GeocodingTool(BaseTool):
 class RestaurantBasicSearchTool(BaseTool):
     name: str = "RestaurantBasicSearchTool"
     description: str = (
-        "주어진 좌표와 location 정보를 기반으로 구글맵에서 식당의 title, rating, reviews를 검색합니다."
+        "주어진 좌표와 검색 키워드를 기반으로 구글맵에서 식당 정보를 검색합니다."
     )
 
     async def get_place_details(
@@ -162,106 +186,133 @@ class RestaurantBasicSearchTool(BaseTool):
             print(f"[RestaurantBasicSearchTool] Details Error: {e}")
             return None
 
-    async def _arun(self, location: str, coordinates: str) -> List[Dict]:
+    async def _arun(self, coordinates: str, search_keywords: List[str]) -> List[Dict]:
         url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
         all_candidates = []
         lat, lng = coordinates.split(",")
-        params = {
-            "query": f"{location} 맛집",
-            "language": "ko",
-            "type": "restaurant",
-            "location": f"{lat},{lng}",
-            "radius": "5000",
-            "key": GOOGLE_MAP_API_KEY,
-        }
 
-        async def fetch_places(filter_rating: float, filter_reviews: int):
-            """특정 필터링 기준으로 Google Places API에서 식당 정보를 가져오는 함수"""
-            candidates = []
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    data = await response.json()
-                    results = data.get("results", [])
+        print(f"[keyword]: {search_keywords}")
+
+        # 각 검색 키워드별로 검색 수행
+        for keyword in search_keywords:
+            params = {
+                "query": keyword,  # 키워드 추출 에이전트가 생성한 키워드 사용
+                "language": "ko",
+                "type": "restaurant",
+                "location": f"{lat},{lng}",
+                "radius": "5000",
+                "key": GOOGLE_MAP_API_KEY,
+            }
+
+            async def fetch_places(filter_rating: float, filter_reviews: int):
+                """특정 필터링 기준으로 Google Places API에서 식당 정보를 가져오는 함수"""
+                candidates = []
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params) as response:
+                        data = await response.json()
+                        results = data.get("results", [])
+                        print(
+                            f"첫 요청 결과 수: {len(results)} (필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상)"
+                        )
+
+                        for place in results:
+                            place_id = place.get("place_id")
+                            if place_id:
+                                details = await self.get_place_details(
+                                    session, place_id
+                                )
+                                if (
+                                    details
+                                    and details["rating"] >= filter_rating
+                                    and details["reviews"] >= filter_reviews
+                                ):
+                                    candidates.append(details)
+
+                        next_page_token = data.get("next_page_token")
+
+                        # 추가 요청: 후보 수가 15개 미만이면 추가로 요청
+                        while next_page_token and len(candidates) < 15:
+                            try:
+                                await asyncio.sleep(3)  # next_page_token 유효 대기
+                                params["pagetoken"] = next_page_token
+                                async with session.get(url, params=params) as response:
+                                    data = await response.json()
+                                    new_results = data.get("results", [])
+                                    print(f"추가 요청 결과 수: {len(new_results)}")
+
+                                    for place in new_results:
+                                        if len(candidates) >= 40:
+                                            break
+                                        place_id = place.get("place_id")
+                                        if place_id:
+                                            details = await self.get_place_details(
+                                                session, place_id
+                                            )
+                                            if (
+                                                details
+                                                and details["rating"] >= filter_rating
+                                                and details["reviews"] >= filter_reviews
+                                            ):
+                                                candidates.append(details)
+
+                                    next_page_token = data.get("next_page_token")
+                            except Exception as e:
+                                print(f"추가 페이지 요청 오류: {e}")
+                                break
+                return candidates
+
+            try:
+                # 1차: 대도시 기준
+                keyword_candidates = await fetch_places(4.0, 500)
+
+                # 결과가 15개 미만이면 중소도시 기준으로 추가 검색
+                if len(keyword_candidates) < 15:
                     print(
-                        f"첫 요청 결과 수: {len(results)} (필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상)"
+                        "결과가 15개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 200개 이상)로 추가 검색"
+                    )
+                    additional_candidates = await fetch_places(3.5, 200)
+                    # 새로운 결과를 기존 결과에 추가
+                    keyword_candidates.extend(
+                        [
+                            c
+                            for c in additional_candidates
+                            if c not in keyword_candidates
+                        ]
                     )
 
-                    for place in results:
-                        place_id = place.get("place_id")
-                        if place_id:
-                            details = await self.get_place_details(session, place_id)
-                            if (
-                                details
-                                and details["rating"] >= filter_rating
-                                and details["reviews"] >= filter_reviews
-                            ):
-                                candidates.append(details)
+                    # 여전히 15개 미만이면 외곽/지방 기준으로 추가 검색
+                    if len(keyword_candidates) < 15:
+                        print(
+                            "결과가 여전히 15개 미만 → 필터링 조건 추가 완화 (평점 3.3 이상, 리뷰 100개 이상)로 추가 검색"
+                        )
+                        additional_candidates = await fetch_places(3.3, 100)
+                        keyword_candidates.extend(
+                            [
+                                c
+                                for c in additional_candidates
+                                if c not in keyword_candidates
+                            ]
+                        )
 
-                    next_page_token = data.get("next_page_token")
-
-                    # 추가 요청: 후보 수가 15개 미만이면 추가로 요청
-                    while next_page_token and len(candidates) < 15:
-                        try:
-                            await asyncio.sleep(3)  # next_page_token 유효 대기
-                            params["pagetoken"] = next_page_token
-                            async with session.get(url, params=params) as response:
-                                data = await response.json()
-                                new_results = data.get("results", [])
-                                print(f"추가 요청 결과 수: {len(new_results)}")
-
-                                for place in new_results:
-                                    if len(candidates) >= 40:
-                                        break
-                                    place_id = place.get("place_id")
-                                    if place_id:
-                                        details = await self.get_place_details(
-                                            session, place_id
-                                        )
-                                        if (
-                                            details
-                                            and details["rating"] >= filter_rating
-                                            and details["reviews"] >= filter_reviews
-                                        ):
-                                            candidates.append(details)
-
-                                next_page_token = data.get("next_page_token")
-                        except Exception as e:
-                            print(f"추가 페이지 요청 오류: {e}")
-                            break
-            return candidates
-
-        try:
-            # 1차: 대도시 기준
-            all_candidates = await fetch_places(4.0, 500)
-
-            # 결과가 15개 미만이면 중소도시 기준으로 추가 검색
-            if len(all_candidates) < 15:
+                all_candidates.extend(keyword_candidates)
                 print(
-                    "결과가 15개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 200개 이상)로 추가 검색"
-                )
-                additional_candidates = await fetch_places(3.5, 200)
-                # 새로운 결과를 기존 결과에 추가
-                all_candidates.extend(
-                    [c for c in additional_candidates if c not in all_candidates]
+                    f"키워드 '{keyword}'에 대한 검색 결과 수: {len(keyword_candidates)}"
                 )
 
-                # 여전히 15개 미만이면 외곽/지방 기준으로 추가 검색
-                if len(all_candidates) < 15:
-                    print(
-                        "결과가 여전히 15개 미만 → 필터링 조건 추가 완화 (평점 3.3 이상, 리뷰 100개 이상)로 추가 검색"
-                    )
-                    additional_candidates = await fetch_places(3.3, 100)
-                    all_candidates.extend(
-                        [c for c in additional_candidates if c not in all_candidates]
-                    )
+            except Exception as e:
+                print(
+                    f"[RestaurantBasicSearchTool] Search Error for keyword '{keyword}': {e}"
+                )
 
-            print(f"최종 수집된 맛집 수: {len(all_candidates)}")
-        except Exception as e:
-            print(f"[RestaurantBasicSearchTool] Search Error: {e}")
-        return all_candidates
+        # 중복 제거 및 결과 반환
+        unique_candidates = list(
+            {candidate["title"]: candidate for candidate in all_candidates}.values()
+        )
+        print(f"최종 수집된 맛집 수 (중복 제거 후): {len(unique_candidates)}")
+        return unique_candidates
 
-    def _run(self, location: str, coordinates: str) -> List[Dict]:
-        return asyncio.run(self._arun(location, coordinates))
+    def _run(self, coordinates: str, search_keywords: List[str]) -> List[Dict]:
+        return asyncio.run(self._arun(coordinates, search_keywords))
 
 
 # 4. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool
