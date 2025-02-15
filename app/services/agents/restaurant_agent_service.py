@@ -8,7 +8,6 @@ from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
 from app.services.agents.tools.restaurant_tool import (
-    # KeywordExtractionTool,
     GeocodingTool,
     RestaurantBasicSearchTool,
     NaverWebSearchTool,
