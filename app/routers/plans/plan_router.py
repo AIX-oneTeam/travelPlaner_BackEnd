@@ -8,8 +8,7 @@ from app.dtos.common.response import ErrorResponse, SuccessResponse
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.repository.plans.plan_spots_repository import save_plan_spots
 from app.repository.spots.spot_repository import delete_spot
-from app.services.checklists.checklist_service import delete_checklist, update_checklist
-from app.repository.checklists.checklist_repository import get_checklist_items, create_checklist_item,delete_checklist_item
+from app.services.checklists.checklist_service import  read_checklist_service,delete_checklist_service,save_checklist_service
 from app.services.plans.plan_service import edit_plan, find_member_plans, find_plan, reg_plan
 from app.services.plans.plan_spots_service import find_plan_spots
 from app.services.spots.spot_service import reg_spot
@@ -113,43 +112,38 @@ async def update_plan(plan_id: int, request_data: PlanRequest, request: Request,
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         
-
         # 1. 소유자 확인
         plan = await find_plan(plan_id, session)
         print("💡[ plan_router ] plan : ", plan)
         if(plan.member_id != member_id):
             return ErrorResponse(message="일정 수정 권한이 없습니다.")
         
-         # 기존 체크리스트 항목들을 임시로 메모리에 저장
-        temp_checklist = await get_checklist_items(plan_id, session)
-        # 체크리스트 먼저 삭제
-        await delete_checklist_item(plan_id, session)
+        # 2. 체크리스트 임시 저장 및 삭제
+        temp_checklist = await read_checklist_service(plan_id, session)
+        await delete_checklist_service(plan_id, session)
         
-        #1. 장소 삭제
+        # 3. 장소 삭제
         plan_spots = await find_plan_spots(plan_id, session)
         print("💡[ plan_router ] plan_spots : ", plan_spots)
         for spot in plan_spots["detail"]:
             print("💡[ plan_router ] spot : ", spot)
             await delete_spot(spot["spot"]["id"], session)
 
-        # 2. 일정 삭제 -> 체크리스트도 삭제됨(캐스캐이딩)
+        # 4. 일정 삭제 -
         await delete_plan(plan_id, session)
 
-        # 2. 새로운 일정 등록
+        # 5. 새로운 일정 등록
         plan_id = await reg_plan(request_data.plan, member_id, session)
         for spot in request_data.spots:
             spot_id = await reg_spot(Spot(**spot.model_dump(exclude={"order", "day_x", "spot_time"})), session)
-            # 3. 일정-장소 매핑 저장
+            # 6. 일정-장소 매핑 저장
             await save_plan_spots(plan_id, spot_id, spot.order, spot.day_x, spot.spot_time, session)
         
-        print(f"======================새로운 프랜 아이디======={plan_id}")
-        
-        # 임시 저장된 체크리스트 항목들을 새 플랜 ID로 업데이트하여 재생성
+        # 6. 임시 저장 체크리스트 새로운 plan_id로 업데이트
         if len(temp_checklist)>0:
-            result = await create_checklist_item(plan_id, temp_checklist, session)
+            result = await save_checklist_service(plan_id, temp_checklist, session)
         print(f"======================저장된 체크리스트 ======={result}")    
-
-        await session.commit() # Commit the transaction
+        await session.commit() 
         
         return SuccessResponse(data={"plan_id": plan_id}, message="일정이 성공적으로 수정되었습니다.")
     except Exception as e:
@@ -175,17 +169,17 @@ async def erase_plan(plan_id: int, request: Request, session: AsyncSession = Dep
         if(plan.member_id != member_id):
             return ErrorResponse(message="일정 삭제 권한이 없습니다.")
         
-        # 체크리스트 삭제
-        await delete_checklist_item(plan_id, session)
+        # 2. 체크리스트 삭제
+        await delete_checklist_service(plan_id, session)
         
-        #2. 장소 삭제
+        #3. 장소 삭제
         plan_spots = await find_plan_spots(plan_id, session)
         print("💡[ plan_router ] plan_spots : ", plan_spots)
         for spot in plan_spots["detail"]:
             print("💡[ plan_router ] spot : ", spot)
             await delete_spot(spot["spot"]["id"], session)
 
-        #3. 일정 삭제
+        #4. 일정 삭제
         await delete_plan(plan_id, session)
 
         return SuccessResponse(message="일정이 성공적으로 삭제되었습니다.")

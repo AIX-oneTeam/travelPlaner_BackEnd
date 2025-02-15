@@ -12,13 +12,13 @@ import uuid
 logger = logging.getLogger(__name__)
 
 # 저장
-async def save_checklist_item(checklist_items: List[Checklist], session: AsyncSession)-> int :
+async def save_checklist_item_repository(plan_id:int, checklist_items: List[Checklist], session: AsyncSession)-> int :
     try:
         saved_items = []
         for item in checklist_items:
             current_time = datetime.now()
             checklist_item = Checklist(
-                plan_id=item.plan_id,
+                plan_id=plan_id,
                 id=uuid.uuid4(),
                 item=item.item,
                 checked=item.checked,
@@ -45,8 +45,9 @@ async def save_checklist_item(checklist_items: List[Checklist], session: AsyncSe
         print(f"[save_checklist_item repository] : error -- {e}")
         await session.rollback()
     
+
 # 읽기
-async def read_checklist_item(plan_id: int, session: AsyncSession):
+async def read_checklist_item_repository(plan_id: int, session: AsyncSession):
     try:
         statement = select(Checklist).where(Checklist.plan_id == plan_id)
         result = await session.exec(statement)
@@ -67,7 +68,7 @@ async def read_checklist_item(plan_id: int, session: AsyncSession):
         raise
 
 # 삭제
-async def delete_checklist_item(plan_id: int, session: AsyncSession):
+async def delete_checklist_item_repository(plan_id: int, session: AsyncSession):
     try:
         statement = delete(Checklist).where(Checklist.plan_id == plan_id)
         await session.exec(statement)
@@ -75,6 +76,7 @@ async def delete_checklist_item(plan_id: int, session: AsyncSession):
         logger.info(f"[delete_checklist_item repository] : deleted plan_id -- {plan_id}")
         print(f"[delete_checklist_item repository] : deleted plan_id -- {plan_id}")
         return plan_id
+    
     except Exception as e:
         logger.error(f"[delete_checklist_item repository] :  error -- {e}")
         print(f"[delete_checklist_item repository] :  error -- {e}")
@@ -82,63 +84,21 @@ async def delete_checklist_item(plan_id: int, session: AsyncSession):
         raise
 
 #업데이트
-async def update_checklist_items(old_plan_id: int, new_plan_id: int, session: AsyncSession):
+async def update_checklist_item_repository(old_plan_id: int, new_plan_id: int, session: AsyncSession):
     try:
         statement = update(Checklist).where(Checklist.plan_id == old_plan_id).values(plan_id=new_plan_id)
         result = await session.exec(statement)
         await session.commit()
-        updated_items = result.rowcount
-        logger.info(f"[update_checklist_items repository] : Updated {updated_items} checklist items")
-        return updated_items
+        updated_item = result.rowcount
+        logger.info(f"[update_checklist_items repository] : Updated checklist plan_id : {old_plan_id} -> {new_plan_id}")
+        print(f"[update_checklist_items repository] : Updated checklist plan_id : {old_plan_id} -> {new_plan_id}")
+        return updated_item
+    
     except Exception as e:
         logger.error(f"[update_checklist_items repository] : error -- {e}")
+        print(f"[update_checklist_items repository] : error -- {e}")
         await session.rollback()
         raise
     
-    
-#테스트 업데이트
-async def get_checklist_items(plan_id: int, session: AsyncSession):
-    try:
-        statement = select(Checklist).where(Checklist.plan_id == plan_id)
-        result = await session.exec(statement)
-        got_checklist = result.all()
-        print(f"===이건 임시 체크리스트 출력 확인 ==================================={got_checklist}")
-        return got_checklist
-    except Exception as e:
-        logger.error(f"=====================임시 체크리스트 오류 -- {e}")
 
 
-async def create_checklist_item(plan_id: int, temp_checklist: List[Checklist], session: AsyncSession):
-    try:
-        for item in temp_checklist:
-            current_time = datetime.now()
-            checklist_item = Checklist(
-                plan_id=plan_id,
-                id=item.id,
-                item=item.item,
-                checked=item.checked,
-                created_at=item.created_at,
-                updated_at=current_time
-            )
-            session.add(checklist_item)
-            
-        await session.flush()
-        print(f"=============수정 후 추가 ======={checklist_item}") 
-            
-        saved_items = []
-        saved_item = Checklist(
-            plan_id=plan_id,
-            item=checklist_item.item,
-            checked=checklist_item.checked
-        )
-        saved_items.append(saved_item)
-        print(f"=============수정 후 추가 ======={checklist_item}")
-    
-        await session.commit()
-        logger.info(f"[save_checklist_item repository] : saved num of data -- {len(saved_items)}")
-        print(f"[save_checklist_item repository] : saved num of data -- {len(saved_items)}")
-        return len(saved_items)
-    except Exception as e:
-        logger.error(f"[save_checklist_item repository] : error -- {e}")
-        print(f"[save_checklist_item repository] : error -- {e}")
-        await session.rollback()
