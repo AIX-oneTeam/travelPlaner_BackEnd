@@ -31,6 +31,7 @@ class TravelPlanRequest(BaseModel):
     concepts: List[str]
     main_location: str
     prompt: Optional[str] = Field(default=None)
+    plan_id: Optional[int] = None
 
 
 @router.post("/plan")
