@@ -105,7 +105,7 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. tool 사용시 "{main_location}"과 "keywords"를 순서대로 입력하세요.
-                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts}을 반영한 키워드 리스트
+                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트
                 2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요.
                 3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
                 4. 포스팅 횟수가 동일한 카페들은 "비추' 등의 부정적인 의견이 적은 포스팅부터 먼저 나열해주세요. 
@@ -179,9 +179,9 @@ class CafeAgentService:
                 """,
                 expected_output="""
                 prompt({prompt})가 유효한 값(빈 문자열(""), None, 또는 null이 아닌 경우)이면 5개의 카페를, 그렇지 않으면 {n}*2개의 카페를 반환하세요.                spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
-                order는 방문할 순서입니다. spot_time을 기준으로 빠른 시간부터 오름차순 정렬해주세요. 순서는 1부터 시작합니다.
                 spot_category는 항상 3으로 고정해주세요
                 day_x는 {n}일의 여행 일정 중 몇일차인지 입니다.(만약, day_x:1 이라면 1일차에 방문한다는 의미)  
+                order는 하루 중 몇번째로 방문할지에 대한 순서입니다. order_x가 바뀔때마다 1부터 새로 시작하며, spot_time을 기준으로 오름차순 정렬해주세요. 
                 business_status는 boolean으로 반환해주세요.
                 """,
                 context=[],        

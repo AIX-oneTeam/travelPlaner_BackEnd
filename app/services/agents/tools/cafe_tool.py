@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 import json
 import emoji  
 import re
+import random
+from app.utils.time_check import time_check
 load_dotenv()
 
 # 네이버 API 관련 환경변수
@@ -17,6 +19,7 @@ AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
 
 httpx_timeout = 5
 n_semaphore = 5
+n_retries = 3
 
 def simplify_address(region: str) -> str:
     # 먼저 입력 문자열에 "-"가 포함되어 있으면 "-"로, 없으면 공백을 기준으로 분리합니다.
@@ -76,9 +79,11 @@ def simplify_address(region: str) -> str:
     # 두번째 부분(구/군/시)이 있으면 처리
     if len(parts) > 1:
         district_str = parts[1]
-        # 부산의 경우, district가 이미 province_short로 시작하면 district만 사용 (부산진구)
+        # 부산진구
         if province_str == "부산광역시" and district_str.startswith(province_short):
             result = district_str
+        elif district_str != "부산진구" and len(district_str)==4:
+            result = district_str[:-1]
         else:
             district_processed = process_district(district_str, province_short)
             result = f"{province_short} {district_processed}"
@@ -86,6 +91,8 @@ def simplify_address(region: str) -> str:
         result = province_short
         
     return result
+
+print(simplify_address("인천광역시 - 미추홀구"))
 
 class NaverBlogSearchTool(BaseTool):
     name: str = "NaverBlogSearch"
@@ -99,28 +106,39 @@ class NaverBlogSearchTool(BaseTool):
             "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
         }
         params = {"query": query, "display": 20, "start": 1, "sort": "sim"}
-        try:
-            resp = await client.get(url, headers=headers, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("items", [])
-            if not items:
-                return f"[NaverBlogSearchTool] '{query}' 검색 결과 없음."
-            results = []
-            for item in items:
-                title = item.get("title", "")
-                link = item.get("link", "")
-                desc = item.get("description", "")
-                results.append(f"제목: {title}\n링크: {link}\n설명: {desc}\n")
-            result_text = "\n".join(results)
-            return f"검색 쿼리: {query}\n결과:\n{result_text}"
-        except Exception as e:
-            return f"[NaverBlogSearchTool] 검색 쿼리 {query} 에러: {str(e)}"
         
+        max_retries = n_retries
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                resp = await client.get(url, headers=headers, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("items", [])
+                if not items:
+                    return f"[cafe_tool:NaverBlogSearchTool] '{query}' 검색 결과 없음."
+                results = []
+                for item in items:
+                    title = item.get("title", "")
+                    link = item.get("link", "")
+                    desc = item.get("description", "")
+                    results.append(f"제목: {title}\n링크: {link}\n설명: {desc}\n")
+                result_text = "\n".join(results)
+                return f"검색 쿼리: {query}\n결과:\n{result_text}"
+
+            except httpx.HTTPError as e:
+                retry_count += 1
+                if retry_count == max_retries:
+                    return f"[cafe_tool:NaverBlogSearchTool] - HTTP 에러 발생: {str(e)}, query: {query}"
+                await asyncio.sleep(2)  
+
+            except Exception as e:
+                return f"[cafe_tool:NaverBlogSearchTool] 검색 쿼리 {query} 에러: {str(e)}"
+    @time_check    
     async def _arun(self, main_location: str, keywords:List[str]) -> str:
         if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
-            return "[NaverBlogSearchTool] 네이버 API 자격 증명이 없습니다."
-        
+            return "[cafe_tool:NaverBlogSearchTool] 네이버 API 자격 증명이 없습니다."
+                   
         simplified_location = simplify_address(main_location)
         # keywords가 비어있으면 기본 검색어를 사용
         if keywords:
@@ -130,9 +148,15 @@ class NaverBlogSearchTool(BaseTool):
         
         querys =[keywords_query, simplified_location+" 카페", simplified_location+" 느좋 카페"]
         
+        semaphore = asyncio.Semaphore(n_semaphore)
+        async def bounded_fetch(client, query):
+            async with semaphore:
+                await asyncio.sleep(random.uniform(1, 3)) # 랜덤딜레이
+                return await self._fetch_query(client, query)
+
         async with httpx.AsyncClient(timeout=httpx_timeout) as client:            
             # 각 검색어마다 비동기 요청(task)을 생성합니다.
-            tasks = [self._fetch_query(client, query) for query in querys]
+            tasks = [bounded_fetch(client, query) for query in querys]
             results = await asyncio.gather(*tasks)
             # 각 검색 결과를 구분
             return "\n---------------\n".join(results)
@@ -150,50 +174,62 @@ class NaverBlogCralwerTool(BaseTool):
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
             "Referer": "https://m.blog.naver.com/"
         }
-        try:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            a_tag = soup.find("a", class_="se-map-info __se_link")
-            if not a_tag:
-                return None
+        max_retries = n_retries
+        retry_count = 0
 
-            data_module_content = a_tag.get("data-linkdata")
-            data = json.loads(data_module_content)
-            
-            placeId = data.get("placeId")
-            if not placeId:  # placeId가 없는 경우만 체크
-                return None
-            
-            # 네이버 블로그 본문 추출
-            # content = soup.find('div', {'class': 'se-main-container'})
-            # if content:
-            #     # 텍스트 추출 및 공백 정리
-            #     text = ' '.join(content.stripped_strings)
-            #     cleaned_text = re.sub(r'\s+', ' ', text).strip()
+        while retry_count < max_retries:
+            try:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                a_tag = soup.find("a", class_="se-map-info __se_link")
+                if not a_tag:
+                    return None
+
+                data_module_content = a_tag.get("data-linkdata")
+                data = json.loads(data_module_content)
                 
-            #     # 불필요한 문자열 제거
-            #     unwanted_strings = ['blog.naver.com', 'search.naver.com', 'open.kakao.com']
-            #     for unwanted in unwanted_strings:
-            #         cleaned_text = cleaned_text.replace(unwanted, '').strip()
+                placeId = data.get("placeId")
+                if not placeId:  # placeId가 없는 경우만 체크
+                    return None
+                
+                # 네이버 블로그 본문 추출
+                # content = soup.find('div', {'class': 'se-main-container'})
+                # if content:
+                #     # 텍스트 추출 및 공백 정리
+                #     text = ' '.join(content.stripped_strings)
+                #     cleaned_text = re.sub(r'\s+', ' ', text).strip()
+                    
+                #     # 불필요한 문자열 제거
+                #     unwanted_strings = ['blog.naver.com', 'search.naver.com', 'open.kakao.com']
+                #     for unwanted in unwanted_strings:
+                #         cleaned_text = cleaned_text.replace(unwanted, '').strip()
 
-            #     # 이모티콘 제거
-            #     cleaned_text = emoji.replace_emoji(cleaned_text, replace='')
-                                
-            return {
-                "placeId": placeId,
-                "name": data.get("name", ""),
-                "address": data.get("address", ""),
-                "latitude": data.get("latitude", ""),
-                "longitude": data.get("longitude", ""),
-                "tel": data.get("tel", ""),
-                # "url": data.get("bookingUrl", ""),
-                # "contents" : cleaned_text
-            }                  
+                #     # 이모티콘 제거
+                #     cleaned_text = emoji.replace_emoji(cleaned_text, replace='')
+                                    
+                return {
+                    "placeId": placeId,
+                    "name": data.get("name", ""),
+                    "address": data.get("address", ""),
+                    "latitude": data.get("latitude", ""),
+                    "longitude": data.get("longitude", ""),
+                    "tel": data.get("tel", ""),
+                    # "url": data.get("bookingUrl", ""),
+                    # "contents" : cleaned_text
+                }        
+            except httpx.HTTPError as e:
+                retry_count += 1
+                if retry_count == max_retries:
+                    return f"[cafe_tool:NaverBlogCralwer] - HTTP 에러 발생: {str(e)}, placeId: {placeId}"
+                await asyncio.sleep(2)  
+                
+                return f"[cafe_tool:NaverBlogCralwer] 에러: {str(e)}"
 
-        except Exception as e:
-            return f"[cafe_tool:NaverBlogCralwer] 에러: {str(e)}"
+            except Exception as e:
+                return f"[cafe_tool:NaverBlogCralwer] 에러: {str(e)}, placeId: {placeId}"
 
     async def _arun(self, urls: List[str]) -> str:
         _unique_places = {}
@@ -201,6 +237,7 @@ class NaverBlogCralwerTool(BaseTool):
         
         async def bounded_fetch(client, url):
             async with semaphore:
+                await asyncio.sleep(random.uniform(1, 3)) # 랜덤딜레이
                 return await self._fetch_blog_data(client, url)
         
         async with httpx.AsyncClient(timeout=httpx_timeout) as client:          
@@ -234,27 +271,39 @@ class NaverReviewCralwerTool(BaseTool):
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
             "Referer": "https://m.place.naver.com/"
         }
-        try:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            reviews = soup.find_all("div", class_="pui__vn15t2")
-            if not reviews:
-                return f"[cafe_tool:NaverReviewCralwer] 에러: 리뷰를 찾을 수 없습니다.]"
+        max_retries = n_retries
+        retry_count = 0
 
-            thumbnail = soup.find("a", class_="place_thumb").find("img").get("src")
-            if not thumbnail:
-                return f"[cafe_tool:NaverReviewCralwer] 에러: 이미지를 찾을 수 없습니다.]"
+        while retry_count < max_retries:            
+            try:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
 
-            reviews_list = [emoji.replace_emoji(review.text, replace='') for review in reviews]
-            return {
-                "placeId": placeId,
-                "image_url": thumbnail,
-                "reviews": reviews_list
-            }
-        except Exception as e:
-            return f"[cafe_tool:NaverReviewCralwer] 에러: {str(e)}"
+                soup = BeautifulSoup(resp.text, "html.parser")
+                reviews = soup.find_all("div", class_="pui__vn15t2")
+                if not reviews:
+                    return f"[cafe_tool:NaverReviewCralwer] 에러: 리뷰를 찾을 수 없습니다.]"
+
+                thumbnail = soup.find("a", class_="place_thumb").find("img").get("src")
+                if not thumbnail:
+                    return f"[cafe_tool:NaverReviewCralwer] 에러: 이미지를 찾을 수 없습니다.]"
+
+                reviews_list = [emoji.replace_emoji(review.text, replace='') for review in reviews]
+                return {
+                    "placeId": placeId,
+                    "image_url": thumbnail,
+                    "reviews": reviews_list
+                }
+            
+            except httpx.HTTPError as e:
+                retry_count += 1
+                if retry_count == max_retries:
+                    return f"[cafe_tool:NaverReviewCralwer] - HTTP 에러 발생: {str(e)}, placeId: {placeId}"
+                await asyncio.sleep(2)  
+
+            except Exception as e:
+                return f"[cafe_tool:NaverReviewCralwer] 에러: {str(e)}"
 
     async def _arun(self, placeIds: List[str]) -> str:
         """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
@@ -262,6 +311,7 @@ class NaverReviewCralwerTool(BaseTool):
         
         async def bounded_fetch(client, placeId):
             async with semaphore:
+                await asyncio.sleep(random.uniform(1, 3)) # 랜덤딜레이 
                 return await self._fetch_review_data(client, placeId)
             
         async with httpx.AsyncClient(timeout=httpx_timeout) as client:
@@ -274,7 +324,7 @@ class NaverReviewCralwerTool(BaseTool):
         return json.dumps(cafes, indent=4, ensure_ascii=False)
 
     def _run(self, placeIds: List[str]) -> str:
-        """동기 함수에서 실행 (queryplaceIds는 장소 placeId 리스트)"""
+        """동기 함수에서 실행 (placeIds는 장소 placeId 리스트)"""
         return asyncio.run(self._arun(placeIds))
 
 # placeIds = ["1785877248", "1614878009","1158509033"]
@@ -296,40 +346,51 @@ class NaverBusinessInfoTool(BaseTool):
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
             "Referer": "https://m.place.naver.com/"
         }
-        try:        
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-            
-            url = f"https://m.place.naver.com/restaurant/{placeId}/home"
-            # 기본 반환 데이터
-            result = {
-                "placeId": placeId,
-                "map_url": f"https://m.place.naver.com/restaurant/{placeId}/location?filter=location&selected_place_id={placeId}",
-                "url": url,
-                "business_hour": "정보 없음"
-            }
-            
-            # URL 정보 추출
-            try:
-                if div_tag := soup.find("div", class_="jO09N"):
-                    if a_tag := div_tag.find("a"):
-                        result["url"] = a_tag.get("href", url)
-            except:
-                pass
-                
-            # 영업시간 정보 추출
-            try:
-                if business_span := soup.find("span", class_="U7pYf"):
-                    if span := business_span.find("span"):
-                        result["business_hour"] = span.text.strip() or "정보 없음"
-            except:
-                pass
 
-            return result
+        max_retries = n_retries
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:        
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, "html.parser")
                 
-        except Exception as e:
-            return f"[cafe_tool:NaverBusinessInfoTool] 에러: {str(e)}"
+                url = f"https://m.place.naver.com/restaurant/{placeId}/home"
+                # 기본 반환 데이터
+                result = {
+                    "placeId": placeId,
+                    "map_url": f"https://m.place.naver.com/restaurant/{placeId}/location?filter=location&selected_place_id={placeId}",
+                    "url": url,
+                    "business_hour": "정보 없음"
+                }
+                
+                # URL 정보 추출
+                try:
+                    if div_tag := soup.find("div", class_="jO09N"):
+                        if a_tag := div_tag.find("a"):
+                            result["url"] = a_tag.get("href", url)
+                except:
+                    pass
+                    
+                # 영업시간 정보 추출
+                try:
+                    if business_span := soup.find("span", class_="U7pYf"):
+                        if span := business_span.find("span"):
+                            result["business_hour"] = span.text.strip() or "정보 없음"
+                except:
+                    pass
+
+                return result
+            
+            except httpx.HTTPError as e:
+                retry_count += 1
+                if retry_count == max_retries:
+                    return f"[cafe_tool:NaverBusinessInfoTool] - HTTP 에러 발생: {str(e)}, placeId: {placeId}"
+                await asyncio.sleep(2)              
+
+            except Exception as e:
+                return f"[cafe_tool:NaverBusinessInfoTool] 에러: {str(e)}"
     
     async def _arun(self, placeIds: List[str]) -> str:
         """여러 개의 장소 placeId를 받아 카페 운영시간, 웹사이트 정보를 수집"""
@@ -337,6 +398,7 @@ class NaverBusinessInfoTool(BaseTool):
         
         async def bounded_fetch(client, placeId):
             async with semaphore:
+                await asyncio.sleep(random.uniform(1, 3)) # 랜덤딜레이
                 return await self._fetch_business_info(client, placeId)
             
         async with httpx.AsyncClient(timeout=httpx_timeout) as client:
@@ -349,7 +411,7 @@ class NaverBusinessInfoTool(BaseTool):
         return json.dumps(cafes, indent=4, ensure_ascii=False)
 
     def _run(self, placeIds: List[str]) -> str:
-        """동기 함수에서 실행 (queryplaceIds는 장소 placeId 리스트)"""
+        """동기 함수에서 실행 (placeIds는 장소 placeId 리스트)"""
         return asyncio.run(self._arun(placeIds))
                 
 #---아래부터 사용하지 않는 툴-------------------------------------------------------------
