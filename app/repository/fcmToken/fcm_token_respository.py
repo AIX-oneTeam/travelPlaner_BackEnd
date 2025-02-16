@@ -15,7 +15,9 @@ async def get_fcm_token(member_id: int, session: AsyncSession):
     try:
         result = await session.exec(select(MessageToken).where(MessageToken.member_id == member_id))
         fcm_token = result.first()
-        return fcm_token
+        if fcm_token is None:
+            return None
+        return fcm_token.token
     except Exception as e:
         print("💡[ fcm_token_respository ] get_fcm_token() 에러 : ", e)
 

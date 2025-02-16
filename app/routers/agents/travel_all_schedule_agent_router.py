@@ -92,7 +92,10 @@ async def generate_plan(
             if member_id is not None:
                 token = await get_fcm_token(member_id, session)
                 print("💡[ travel_all_schedule_agent_router ] token : ", token)
-                send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
+                if token is not None:
+                    send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
+                else:
+                    print("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
             else:
                 print("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
         except Exception as e:
