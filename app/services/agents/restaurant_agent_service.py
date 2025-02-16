@@ -192,7 +192,7 @@ class RestaurantAgentService:
                 {{
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
-                    "description": "string (가게 설명, 최소 150자 이상 230자 이하)",
+                    "description": "string (가게 설명, 최소 150자 이상 200자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
                     "business_hours": "string 또는 null (영업 시간 정보)"
                     "url": "string 또는 null (가게 URL, 공식 정보 우선)",
@@ -238,7 +238,7 @@ class RestaurantAgentService:
                 {{
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
-                    "description": "string (가게 설명, 최소 150자 이상 255자 이하)",
+                    "description": "string (가게 설명, 최소 150자 이상 200자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
                     "business_hours": "string 또는 null (영업 시간 정보)"
                     "url": "string 또는 null (가게 URL, 공식 정보 우선)",
