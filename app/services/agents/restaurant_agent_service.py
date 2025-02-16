@@ -158,7 +158,7 @@ class RestaurantAgentService:
                 여행 기간: {input_data['start_date']} ~ {input_data['end_date']}
                 연령대: {input_data['ages']}
                 동반자: {', '.join([f"{c['label']} {c['count']}명" for c in input_data['companion_count']])}
-                요청사항: {prompt_text}
+                {prompt_text}
 
                 # 규칙
                 1. 정확히 3개의 검색 키워드를 생성할 것

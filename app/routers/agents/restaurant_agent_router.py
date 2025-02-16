@@ -17,7 +17,12 @@ async def get_restaurants(
     """
     try:
         # model_dump()를 사용하여 입력 데이터를 dict 형태로 변환
+         # plan_id 확인 - 디버깅
         input_data = user_input.model_dump()
+
+        # plan_id = input_data.get('plan_id')
+        # print(f"[plan_id]: {plan_id}")
+        # print(f"[input_data]: {input_data}")
 
         # prompt 값이 있을 경우, 딕셔너리에 추가 (user_input에는 직접 할당 불가)
         if prompt:
