@@ -121,12 +121,17 @@ class RestaurantBasicSearchTool(BaseTool):
             print(f"[RestaurantBasicSearchTool] Details Error: {e}")
             return None
 
-    async def _arun(self, coordinates: str, search_keywords: List[str]) -> List[Dict]:
+    async def _arun(
+        self,
+        coordinates: str,
+        search_keywords: List[str],
+        existing_spot_names: List[str] = None,
+    ) -> List[Dict]:
         url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
         all_candidates = []
         lat, lng = coordinates.split(",")
 
-        print(f"[keyword]: {search_keywords}")
+        # print(f"[keyword]: {search_keywords}")
 
         # 각 검색 키워드별로 검색 수행
         for keyword in search_keywords:
@@ -245,11 +250,30 @@ class RestaurantBasicSearchTool(BaseTool):
         unique_candidates = list(
             {candidate["title"]: candidate for candidate in all_candidates}.values()
         )
+
+        # 기존 장소와 중복 제거
+        if existing_spot_names:
+            print(f"💡 기존 장소와 중복 제거 전 개수: {len(unique_candidates)}")
+            filtered_candidates = [
+                candidate
+                for candidate in unique_candidates
+                if candidate["title"] not in existing_spot_names
+            ]
+            print(f"💡 기존 장소와 중복 제거 후 개수: {len(filtered_candidates)}")
+            return filtered_candidates
+
         print(f"최종 수집된 맛집 수 (중복 제거 후): {len(unique_candidates)}")
         return unique_candidates
 
-    def _run(self, coordinates: str, search_keywords: List[str]) -> List[Dict]:
-        return asyncio.run(self._arun(coordinates, search_keywords))
+    def _run(
+        self,
+        coordinates: str,
+        search_keywords: List[str],
+        existing_spot_names: List[str] = None,
+    ) -> List[Dict]:
+        return asyncio.run(
+            self._arun(coordinates, search_keywords, existing_spot_names)
+        )
 
 
 # 3. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool

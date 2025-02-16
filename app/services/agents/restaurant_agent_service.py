@@ -7,6 +7,8 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
+from app.repository.plans.plan_spots_repository import get_plan_spots
+from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.agents.tools.restaurant_tool import (
     GeocodingTool,
     RestaurantBasicSearchTool,
@@ -174,7 +176,7 @@ class RestaurantAgentService:
                 expected_output="좌표와 3개의 맛집 검색 키워드",
             ),
             Task(
-                description="맛집 기본 정보 조회",
+                description=f"""기존에 추천되었던 {input_data.get('existing_spot_names', [])} 식당들은 제외하고 정보 조회해주세요.""",
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
             ),
@@ -350,13 +352,41 @@ class RestaurantAgentService:
         }
 
     async def create_recommendation(
-        self, input_data: dict, prompt: Optional[str] = None
+        self,
+        input_data: dict,
+        prompt: Optional[str] = None,
+        session: AsyncSession = None,
     ) -> dict:
         """추천 워크플로우를 실행하는 메서드"""
         try:
+            # plan_id 있는 경우 기존 장소 조회
+            existing_spot_names = []
+            if input_data.get("plan_id"):
+                try:
+                    # DB에서 기존 장소 리스트 조회
+                    if session:  # 세션이 전달된 경우에만 DB 조회
+                        plan_spots_with_spot_info = await get_plan_spots(
+                            input_data["plan_id"], session
+                        )
+                        if (
+                            plan_spots_with_spot_info
+                            and "detail" in plan_spots_with_spot_info
+                        ):
+                            existing_spot_names = [
+                                item["spot"].kor_name
+                                for item in plan_spots_with_spot_info["detail"]
+                            ]
+                            print(f"💡 기존 등록된 장소들: {existing_spot_names}")
+                except Exception as e:
+                    print(f"💡 기존 장소 조회 중 오류 발생: {e}")
+
             # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
 
+            # existing_spot_names를 processed_input에 추가
+            processed_input["existing_spot_names"] = existing_spot_names
+
+            print(f"💡[processed_input]: {processed_input}")
             # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text)
 
