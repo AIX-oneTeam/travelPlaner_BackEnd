@@ -10,11 +10,9 @@ from app.repository.members.mebmer_repository import get_memberId_by_email
 
 router = APIRouter()
 
-
-# TODO: 테스트용 코드. 배포 전에 반드시 삭제할 것.
 class FcmTokenRequest(BaseModel):
     fcm_token: str
-    email: str
+    email: Optional[str] = None
 
 @router.get("/logout")
 async def logout(response: Response):
