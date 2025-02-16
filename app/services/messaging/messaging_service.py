@@ -6,7 +6,7 @@ load_dotenv()
 
 
 # 파일 경로 상대 경로로 지정
-FCM_SERVICE_ACCOUNT_JSON = os.path.join(os.path.dirname(__file__), "easytravel-8cf1e-firebase-adminsdk-fbsvc-b1ba2a4a9c.json")
+FCM_SERVICE_ACCOUNT_JSON = os.path.join(os.path.dirname(__file__), "FCM_ADMIN.json")
 FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID")
 
 push_service = FCMNotification(service_account_file=FCM_SERVICE_ACCOUNT_JSON, project_id=FCM_PROJECT_ID)

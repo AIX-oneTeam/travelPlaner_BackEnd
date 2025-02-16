@@ -87,14 +87,14 @@ async def read_member_plans(request: Request, session: AsyncSession = Depends(ge
             member_email = request.state.user.get("email")
             member_id = await get_memberId_by_email(member_email, session)
             print("💡[ plan_router ] member_id : ", member_id)
-        # 푸시 메시지 전송
-        # TODO: 테스트용 코드. 배포 전에 반드시 삭제할 것.
-        try:
-            message_token = await get_fcm_token(member_id, session)
-            print("💡[ plan_router ] message_token : ", message_token)
-            send_push_message(token=message_token.token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
-        except Exception as e:
-            logging.error(f"푸시 메시지 전송 오류: {e}")
+            # 푸시 메시지 전송
+            # TODO: 테스트용 코드. 배포 전에 반드시 삭제할 것.
+            try:
+                message_token = await get_fcm_token(member_id, session)
+                print("💡[ plan_router ] message_token : ", message_token)
+                send_push_message(token=message_token.token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
+            except Exception as e:
+                logging.error(f"푸시 메시지 전송 오류: {e}")
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         plans = await find_member_plans(member_id, session)
