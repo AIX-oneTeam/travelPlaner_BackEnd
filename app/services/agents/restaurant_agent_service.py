@@ -7,7 +7,8 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
-from app.repository.plans.plan_spots_repository import get_member_plan_spots
+from app.repository.agents.agent_plan_spots_repository import get_member_plan_spots
+from app.repository.agents.agent_plan_spots_repository import get_latest_plan
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.agents.tools.restaurant_tool import (
@@ -352,28 +353,38 @@ class RestaurantAgentService:
             "spots": spots_data.get("spots", []),
         }
 
-
     async def create_recommendation(
         self,
         input_data: dict,
         prompt: Optional[str] = None,
         session: AsyncSession = None,
     ) -> dict:
-        """추천 워크플로우를 실행하는 메서드"""
         try:
-            # plan_id 있는 경우 기존 장소 조회
             existing_spot_names = []
-            if input_data.get("plan_id") and input_data.get("email") and session:
+            if input_data.get("email") and session:
                 try:
                     # 1. email로 member_id 조회
                     member_id = await get_memberId_by_email(input_data["email"], session)
                     print(f"🟨 [조회된 member_id]: {member_id}")
 
                     if member_id:
-                        # 2. member_id와 plan_id로 plan_spots 조회
+                        current_plan_id = input_data.get("plan_id")
+
+                        # 2. 먼저 현재 plan이 해당 member의 것인지 확인
                         plan_spots_with_spot_info = await get_member_plan_spots(
-                            input_data["plan_id"], member_id, session
+                            current_plan_id, member_id, session
                         )
+
+                        # 3. plan이 없는 경우에만 최신 plan 조회
+                        if not plan_spots_with_spot_info:
+                            latest_plan = await get_latest_plan(member_id, session)
+                            if latest_plan:
+                                plan_spots_with_spot_info = await get_member_plan_spots(
+                                    latest_plan.id, member_id, session
+                                )
+                                print(f"🟨 [최신 plan_id 사용]: {latest_plan.id}")
+                        else:
+                            print(f"🟨 [전달받은 plan_id 사용]: {current_plan_id}")
 
                         if (
                             plan_spots_with_spot_info
@@ -395,7 +406,7 @@ class RestaurantAgentService:
             # existing_spot_names를 processed_input에 추가
             processed_input["existing_spot_names"] = existing_spot_names
 
-            print(f"🟨[processed_input]: {processed_input}")
+            print(f"🟨 [processed_input]: {processed_input}")
 
             # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text)

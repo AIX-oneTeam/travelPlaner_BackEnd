@@ -49,8 +49,9 @@ async def get_member_plan_spots(plan_id: int, member_id: int, session: AsyncSess
         print("[ plan_spots_repository ] get_plan_spots() 에러 : ", e)
         raise e
 
+
 # 최근 수정된 plan 조회
-async def get_latest_plan_by_member(member_id: int, session: AsyncSession):
+async def get_latest_plan(member_id: int, session: AsyncSession):
     try:
         # member_id에 해당하는 가장 최근 plan 조회
         plan_stmt = (
@@ -67,5 +68,5 @@ async def get_latest_plan_by_member(member_id: int, session: AsyncSession):
         return plan if plan is not None else None
 
     except Exception as e:
-        print("[ plan_spots_repository ] get_latest_plan_by_member() 에러 : ", e)
+        print("[ plan_spots_repository ] get_latest_plan() 에러 : ", e)
         raise e
