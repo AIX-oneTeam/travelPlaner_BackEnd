@@ -142,8 +142,8 @@ async def update_plan(plan_id: int, request_data: PlanRequest, request: Request,
         # 6. 임시 저장 체크리스트 새로운 plan_id로 업데이트
         if len(temp_checklist)>0:
             result = await save_checklist_service(plan_id, temp_checklist, session)
-        print(f"======================저장된 체크리스트 ======={result}")    
-        await session.commit() 
+            print(f"======================저장된 체크리스트 ======={result}")    
+            await session.commit() 
         
         return SuccessResponse(data={"plan_id": plan_id}, message="일정이 성공적으로 수정되었습니다.")
     except Exception as e:
