@@ -8,7 +8,7 @@ from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from typing import AsyncGenerator
-
+from .redis_client import init_redis, close_redis
 # 환경 변수 로드
 print("--------------------db.py---------------------")
 load_dotenv()
@@ -33,12 +33,17 @@ async def lifespan(app: FastAPI):
     # 데이터베이스 연결 초기화
     app.state.engine = engine
 
+    # Redis 초기화
+    await init_redis(app)
+    
     try:
         yield
     finally:
         print("Shutting down application...")
         await engine.dispose()
         print("Database connection closed.")
+        await close_redis()
+        print("Redis connections closed.")
 
 # 의존성 주입을 위한 비동기 세션 제공자
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:

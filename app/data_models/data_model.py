@@ -52,7 +52,18 @@ class Member(SQLModel, table=True):
             raise ValueError(f"Invalid phone number: {phone_number}") from e
         return values
 
-       
+class MessageToken(SQLModel, table=True):
+    __tablename__ = "message_token"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int = Field(foreign_key="member.id")
+    token: str = Field(max_length=2083)
+    created_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+    )
+    updated_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+    )
+
 class Plan(SQLModel, table=True):
     __tablename__ = "plan"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -149,7 +160,7 @@ class PlanSpotTagMap(SQLModel, table=True):
 
 class Checklist(SQLModel, table=True):
     __tablename__ = "checklist"
-    id: int | None = Field(default=None, primary_key=True)
+    id: str = Field(default=None, primary_key=True)
     plan_id: int = Field(foreign_key="plan.id")
     item: Optional[str] = Field(default=None, max_length=255)
     checked: Optional[bool] = None
