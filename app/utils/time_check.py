@@ -1,5 +1,8 @@
 import asyncio
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 def time_check(func):
     """_summary_
@@ -28,7 +31,7 @@ def time_check(func):
             execution_time_minute = round(execution_time_minute, 2)
             execution_time_second = round(execution_time_second, 2)
 
-            print(f"💡[ time_check ] 비동기 함수입니다 : {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
+            logger.info(f"💡[ time_check ] 비동기 함수입니다 : {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
             return result
         return wrapper
     else:
@@ -49,7 +52,7 @@ def time_check(func):
             execution_time_minute = round(execution_time_minute, 2)
             execution_time_second = round(execution_time_second, 2)
 
-            print(f"💡[ time_check ] 동기 함수입니다 : {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
+            logger.info(f"💡[ time_check ] 동기 함수입니다 : {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
             return result
 
         return wrapper

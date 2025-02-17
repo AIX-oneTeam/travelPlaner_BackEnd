@@ -9,6 +9,7 @@ from app.repository.fcmToken.fcm_token_respository import get_fcm_token
 from app.services.members.member_service import get_member_id_by_request
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 # 파일 경로 상대 경로로 지정
@@ -33,15 +34,15 @@ async def send_push_message(request:Request, session:AsyncSession, title:str, bo
             member_id = await get_member_id_by_request(request, session)
             if member_id is not None:
                 token = await get_fcm_token(member_id, session)
-                logging.info("💡[ travel_all_schedule_agent_router ] token : ", token)
+                logger.info("💡[ travel_all_schedule_agent_router ] token : ", token)
                 if token is not None:
                     notify_message_to_one(token=token, title=title, body=body)
                 else:
-                    logging.info("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
+                    logger.info("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
             else:
-                logging.info("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
+                logger.info("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
         except Exception as e:
-            logging.error("💡[ travel_all_schedule_agent_router ] 푸시 메시지 전송 오류: ", e)
+            logger.error("💡[ travel_all_schedule_agent_router ] 푸시 메시지 전송 오류: ", e)
 
 
 

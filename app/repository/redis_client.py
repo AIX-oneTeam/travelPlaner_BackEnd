@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 REDIS_URL = os.getenv("REDIS_URL")
 
+logger = logging.getLogger(__name__)
+
 # 전역 변수로 Redis 클라이언트 관리
 redis_client: Optional[Redis] = None
 
@@ -23,13 +25,13 @@ async def init_redis(app: FastAPI) -> None:
             decode_responses=True
         )
         await redis_client.ping()
-        logging.info("Redis 연결 성공")
+        logger.info("Redis 연결 성공")
         
         # FastAPI 앱에 Redis 클라이언트 저장
         app.state.redis = redis_client
         
     except ConnectionError as e:
-        logging.error(f"Redis 연결 실패: {str(e)}")
+        logger.error(f"Redis 연결 실패: {str(e)}")
         raise
 
 async def close_redis() -> None:
@@ -38,7 +40,7 @@ async def close_redis() -> None:
     
     if redis_client:
         await redis_client.close()
-        logging.info("Redis 연결 종료")
+        logger.info("Redis 연결 종료")
         redis_client = None
 
 def get_redis_client() -> Redis:

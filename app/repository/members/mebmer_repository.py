@@ -32,7 +32,6 @@ async def get_memberId_by_email(email: str, provider: str, session: AsyncSession
 
 async def is_exist_member_by_email(email: str, oauth: str, session: AsyncSession) -> bool:
     try:
-        print("session type : ", type(session))
         query = select(Member).where((Member.email == email) & (Member.oauth == oauth))
         result = await session.exec(query)
         member = result.first()
