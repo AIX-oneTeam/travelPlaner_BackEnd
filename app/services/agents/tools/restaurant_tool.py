@@ -5,7 +5,7 @@ import datetime
 import os
 import re
 from crewai.tools import BaseTool
-from typing import List, Dict
+from typing import List, Dict, Union
 from dotenv import load_dotenv
 
 
@@ -379,14 +379,28 @@ class NaverImageSearchTool(BaseTool):
             print(f"네이버 이미지 검색 오류: {str(e)}")
             return "https://via.placeholder.com/300x200?text=Error"
 
-    async def _arun(self, restaurant_list: List[str]) -> Dict[str, str]:
+    async def _arun(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
+        if isinstance(restaurant_list, dict):
+            if "type" in restaurant_list:
+                restaurants = restaurant_list["type"]
+            else:
+                restaurants = []
+        else:
+            restaurants = (
+                restaurant_list
+                if isinstance(restaurant_list, list)
+                else [restaurant_list]
+            )
+
+        restaurants = [str(r) for r in restaurants if r is not None]
+
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurant_list:
+            for restaurant in restaurants:
                 results[restaurant] = await self.fetch(session, restaurant)
         return results
 
-    def _run(self, restaurant_list: List[str]) -> Dict[str, str]:
+    def _run(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
         return asyncio.run(self._arun(restaurant_list))
 
 
