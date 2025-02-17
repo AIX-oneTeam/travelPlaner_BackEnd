@@ -112,14 +112,14 @@ class GoogleHotelSearchTool(BaseTool):
     name: str = "Google Hotel Search"
     description: str = "구글 호텔 검색 API를 사용하여 텍스트 정보를 검색"
     
-    def _run(self, location: str, check_in_date: str, check_out_date: str, adults: int, children: int) -> str:
+    def _run(self, location: str, start_date: str, end_date: str, adults: int, children: int) -> str:
         try:            
             
             params = {
                 "engine": "google_hotels",
                 'q': f"{location} 숙소", 
-                "check_in_date": check_in_date,
-                "check_out_date": check_out_date,
+                "check_in_date": start_date,
+                "check_out_date": end_date,
                 "adults": adults,
                 "children": children,
                 "currency": "KRW",
