@@ -9,7 +9,6 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 
-
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 KAKAO_API_KEY = os.getenv("KAKAO_API_KEY")
@@ -79,13 +78,41 @@ class TouristAgentService:
     def _process_input(
         self, input_data: dict, prompt: Optional[str] = None
     ) -> Tuple[dict, str]:
-        """Preprocess input data"""
+        """
+        Preprocess input data.
+        - main_location must be provided (없으면 HTTP 400 에러 발생).
+        - Always include main_location info in the prompt.
+        - If existing_spots exist, add exclusion instructions.
+        """
         print(f"[Input Data] {input_data}")
         print(f"[Prompt] {prompt}")
+
+        if not input_data.get("main_location"):
+            raise HTTPException(
+                status_code=400, detail="main_location must be provided"
+            )
+
         if "concepts" not in input_data or not isinstance(input_data["concepts"], list):
             input_data["concepts"] = []
-        # The prompt text is now in English
-        prompt_text = f"Additional instructions: {prompt}\n" if prompt else ""
+
+        # main_location 정보를 항상 포함 (예: "지역: 경상남도 - 고성군.")
+        main_location_text = f"지역: {input_data.get('main_location')}. "
+
+        # 기존 추천 관광지를 제외하는 조건 추가
+        exclusion_text = ""
+        existing_spots = input_data.get("existing_spots", [])
+        if existing_spots:
+            existing_names = ", ".join(
+                [spot.get("kor_name", "") for spot in existing_spots]
+            )
+            exclusion_text = f"이전에 추천받은 관광지는 ({existing_names}) 입니다. 이 관광지들은 제외하고 "
+
+        # 최종 프롬프트 생성: main_location 정보가 항상 포함됨
+        if prompt:
+            prompt_text = f"Additional instructions: {main_location_text}{exclusion_text}{prompt}\n"
+        else:
+            prompt_text = f"Additional instructions: {main_location_text}\n"
+
         return input_data, prompt_text
 
     def _create_agents(self) -> Dict[str, Agent]:
@@ -102,9 +129,7 @@ class TouristAgentService:
             ),
             "image_update": Agent(
                 role="Image Search Specialist",
-                goal=(
-                    "For each recommended tourist spot, use its 'kor_name' to fetch the latest image and update the 'image_url' field."
-                ),
+                goal="For each recommended tourist spot, use its 'kor_name' to fetch the latest image and update the 'image_url' field.",
                 backstory="I provide representative images for tourist spots using the Naver Image Search API.",
                 tools=[self.image_search_tool],
                 llm=self.llm,
@@ -140,7 +165,7 @@ class TouristAgentService:
             f"{prompt_text}\n"
             "Each tourist spot must strictly follow the following JSON object format:\n"
             f"{json_schema_prompt}\n"
-            "Note: The result must be a pure JSON array (e.g., [ {...}, {...}, ... ]) without any extra text."
+            "Note: The result must be a pure JSON array (e.g., [ {{...}}, {{...}}, ... ]) without any extra text."
         )
         task1 = Task(
             description=task1_description,
@@ -163,7 +188,6 @@ class TouristAgentService:
     ) -> dict:
         """Execute the tourist recommendation workflow using the original Korean prompt."""
         try:
-            # No translation: directly use the Korean prompt
             processed_input, prompt_text = self._process_input(input_data, prompt)
             tasks = self._create_tasks(processed_input, prompt_text)
             crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True)
@@ -196,7 +220,6 @@ class TouristAgentService:
             print("Error processing result:", e)
             spots_data = {"spots": []}
 
-        # Calculate the total number of travel days (e.g., 1 night 2 days means 2 days)
         try:
             start_date = datetime.strptime(input_data.get("start_date", ""), "%Y-%m-%d")
             end_date = datetime.strptime(input_data.get("end_date", ""), "%Y-%m-%d")
@@ -207,7 +230,6 @@ class TouristAgentService:
             total_days = 1
 
         for idx, spot in enumerate(spots_data.get("spots", [])):
-            # Create a combined query using the tourist spot name and main location
             query = f"{spot.get('kor_name', '')} {input_data.get('main_location', '')}"
             new_lat, new_lon, new_address = await get_kakao_location_info(query)
             spot["latitude"] = new_lat
@@ -223,7 +245,6 @@ class TouristAgentService:
                 spot["map_url"] = (
                     f"https://map.kakao.com/link/map/{spot.get('kor_name', '')},{new_lat},{new_lon}"
                 )
-            # Assign day_x dynamically over the travel period
             if not spot.get("day_x") or spot.get("day_x") == 0:
                 spot["day_x"] = (idx % total_days) + 1
 
