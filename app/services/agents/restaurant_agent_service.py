@@ -18,6 +18,8 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
+import logging
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,7 +39,6 @@ class RestaurantAgentService:
 
     def initialize(self):
         """서비스 초기화"""
-        # print("RestaurantAgentService 초기화 중...")
         self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
@@ -51,8 +52,8 @@ class RestaurantAgentService:
         self, input_data: dict, prompt: Optional[str] = None
     ) -> tuple[dict, str]:
         """입력 데이터 전처리"""
-        print(f"[입력 데이터] input_data: {input_data}")
-        print(f"[프롬프트 입력] prompt: {prompt}")
+        logger.info(f"[입력 데이터] input_data: {input_data}")
+        logger.info(f"[프롬프트 입력] prompt: {prompt}")
 
         if prompt:
             # prompt가 있으면 concepts 무시
@@ -75,7 +76,7 @@ class RestaurantAgentService:
             ]
             if not filtered_concepts:
                 filtered_concepts = ["맛집"]
-            print(f"[컨셉 필터링] filtered_concepts: {filtered_concepts}")
+            logger.info(f"[컨셉 필터링] filtered_concepts: {filtered_concepts}")
             input_data["concepts"] = filtered_concepts
             prompt_text = f"맛집을 다음 컨셉에 맞춰서 추천해주세요: {', '.join(filtered_concepts)}"
 
@@ -365,7 +366,7 @@ class RestaurantAgentService:
                 try:
                     # 1. email로 member_id 조회
                     member_id = await get_memberId_by_email(input_data["email"], session)
-                    print(f"🟨 [조회된 member_id]: {member_id}")
+                    logger.info(f"🟡 [조회된 member_id]: {member_id}")
 
                     if member_id:
                         current_plan_id = input_data.get("plan_id")
@@ -382,9 +383,13 @@ class RestaurantAgentService:
                                 plan_spots_with_spot_info = await get_member_plan_spots(
                                     latest_plan.id, member_id, session
                                 )
-                                print(f"🟨 [최신 plan_id 사용]: {latest_plan.id}")
+                                logger.info(
+                                    f"🟡 [최신 plan_id 사용]: {latest_plan.id}"
+                                )
                         else:
-                            print(f"🟨 [전달받은 plan_id 사용]: {current_plan_id}")
+                            logger.info(
+                                f"🟡 [전달받은 plan_id 사용]: {current_plan_id}"
+                            )
 
                         if (
                             plan_spots_with_spot_info
@@ -394,10 +399,12 @@ class RestaurantAgentService:
                                 item["spot"].kor_name
                                 for item in plan_spots_with_spot_info["detail"]
                             ]
-                            print(f"🟨 [기존 등록된 장소들]: {existing_spot_names}")
+                            logger.info(
+                                f"🟡 [기존 등록된 장소들]: {existing_spot_names}"
+                            )
 
                 except Exception as e:
-                    print(f"🟨 기존 장소 조회 중 오류 발생: {e}")
+                    logger.error(f"🟡 기존 장소 조회 중 오류 발생: {e}")
                     traceback.print_exc()
 
             # 1. 입력 데이터 전처리
@@ -406,7 +413,7 @@ class RestaurantAgentService:
             # existing_spot_names를 processed_input에 추가
             processed_input["existing_spot_names"] = existing_spot_names
 
-            print(f"🟨 [processed_input]: {processed_input}")
+            logger.info(f"🟡 [processed_input]: {processed_input}")
 
             # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text)
