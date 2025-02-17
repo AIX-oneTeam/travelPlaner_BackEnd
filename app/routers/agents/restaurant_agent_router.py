@@ -26,7 +26,7 @@ async def get_restaurants(
 
         # plan_id = input_data.get('plan_id')
         # print(f"[plan_id]: {plan_id}")
-        # print(f"[input_data]: {input_data}")
+        print(f"✅ [input_data]: {input_data}")
 
         # prompt 값이 있을 경우, 딕셔너리에 추가 (user_input에는 직접 할당 불가)
         if prompt:

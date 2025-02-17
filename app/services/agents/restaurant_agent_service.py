@@ -7,7 +7,8 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
-from app.repository.plans.plan_spots_repository import get_plan_spots
+from app.repository.plans.plan_spots_repository import get_member_plan_spots
+from app.repository.members.mebmer_repository import get_memberId_by_email
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.agents.tools.restaurant_tool import (
     GeocodingTool,
@@ -351,6 +352,7 @@ class RestaurantAgentService:
             "spots": spots_data.get("spots", []),
         }
 
+
     async def create_recommendation(
         self,
         input_data: dict,
@@ -361,13 +363,18 @@ class RestaurantAgentService:
         try:
             # plan_id 있는 경우 기존 장소 조회
             existing_spot_names = []
-            if input_data.get("plan_id"):
+            if input_data.get("plan_id") and input_data.get("email") and session:
                 try:
-                    # DB에서 기존 장소 리스트 조회
-                    if session:  # 세션이 전달된 경우에만 DB 조회
-                        plan_spots_with_spot_info = await get_plan_spots(
-                            input_data["plan_id"], session
+                    # 1. email로 member_id 조회
+                    member_id = await get_memberId_by_email(input_data["email"], session)
+                    print(f"🟨 [조회된 member_id]: {member_id}")
+
+                    if member_id:
+                        # 2. member_id와 plan_id로 plan_spots 조회
+                        plan_spots_with_spot_info = await get_member_plan_spots(
+                            input_data["plan_id"], member_id, session
                         )
+
                         if (
                             plan_spots_with_spot_info
                             and "detail" in plan_spots_with_spot_info
@@ -376,9 +383,11 @@ class RestaurantAgentService:
                                 item["spot"].kor_name
                                 for item in plan_spots_with_spot_info["detail"]
                             ]
-                            print(f"💡 기존 등록된 장소들: {existing_spot_names}")
+                            print(f"🟨 [기존 등록된 장소들]: {existing_spot_names}")
+
                 except Exception as e:
-                    print(f"💡 기존 장소 조회 중 오류 발생: {e}")
+                    print(f"🟨 기존 장소 조회 중 오류 발생: {e}")
+                    traceback.print_exc()
 
             # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
@@ -386,7 +395,8 @@ class RestaurantAgentService:
             # existing_spot_names를 processed_input에 추가
             processed_input["existing_spot_names"] = existing_spot_names
 
-            print(f"💡[processed_input]: {processed_input}")
+            print(f"🟨[processed_input]: {processed_input}")
+
             # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text)
 
