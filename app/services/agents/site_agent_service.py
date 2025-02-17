@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 import aiohttp
@@ -224,10 +225,11 @@ class TouristAgentService:
         existing_spot_names = [
             spot.get("kor_name", "") for spot in input_data.get("existing_spots", [])
         ]
-        unique_spots = []
-        for spot in spots_data.get("spots", []):
-            if spot.get("kor_name", "") not in existing_spot_names:
-                unique_spots.append(spot)
+        unique_spots = [
+            spot
+            for spot in spots_data.get("spots", [])
+            if spot.get("kor_name", "") not in existing_spot_names
+        ]
         spots_data["spots"] = unique_spots
 
         # Calculate total days from start_date to end_date
@@ -240,10 +242,18 @@ class TouristAgentService:
         except Exception:
             total_days = 1
 
-        # Update each spot with Kakao map info and day_x
-        for idx, spot in enumerate(spots_data.get("spots", [])):
-            query = f"{spot.get('kor_name', '')} {input_data.get('main_location', '')}"
-            new_lat, new_lon, new_address = await get_kakao_location_info(query)
+        # Update each spot with Kakao map info and day_x in parallel using asyncio.gather
+        spots = spots_data.get("spots", [])
+        queries = [
+            f"{spot.get('kor_name', '')} {input_data.get('main_location', '')}"
+            for spot in spots
+        ]
+        kakao_results = await asyncio.gather(
+            *(get_kakao_location_info(query) for query in queries)
+        )
+        for idx, (spot, (new_lat, new_lon, new_address)) in enumerate(
+            zip(spots, kakao_results)
+        ):
             spot["latitude"] = new_lat
             spot["longitude"] = new_lon
             if new_address:
