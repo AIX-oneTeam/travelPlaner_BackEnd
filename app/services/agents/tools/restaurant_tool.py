@@ -119,7 +119,7 @@ class RestaurantBasicSearchTool(BaseTool):
                     "reviews": result.get("user_ratings_total", 0),
                 }
         except Exception as e:
-            print(f"[RestaurantBasicSearchTool] Details Error: {e}")
+            logger.error(f"[RestaurantBasicSearchTool] Details Error: {e}")
             return None
 
     async def _arun(
