@@ -53,7 +53,7 @@ async def save_plan(plan: Plan, session: AsyncSession, plan_id: int = None):
 async def get_plan(plan_id: int, session: AsyncSession):
     try:
         plan = await session.get(Plan, plan_id)
-        print("💡[ plan_repository ] get_plan() 호출 : ", plan)
+        logging.info("💡[ plan_repository ] get_plan() 호출 : ", plan)
         return plan if plan is not None else None
 
     except Exception as e:
@@ -64,12 +64,9 @@ async def get_plan(plan_id: int, session: AsyncSession):
 async def get_member_plans(member_id: int, session: AsyncSession):
     try:
         logger.info(f"[ plan_repository ] get_member_plans() 호출 : {member_id}")
-        print("💡[ plan_repository ] get_member_plans() 호출 : ", member_id)
         query = select(Plan).where(Plan.member_id == member_id)
         result = await session.exec(query)
-        print("💡[ plan_repository ] get_member_plans() 결과 : ", result)
         plans = result.all()
-        print("💡[ plan_repository ] get_member_plans() 결과 : ", plans)
 
         # serialize_time 유틸리티를 사용하여 변환
         plans = [
@@ -82,8 +79,6 @@ async def get_member_plans(member_id: int, session: AsyncSession):
         
         logger.info(f"[ plan_repository ] get_member_plans() 결과 : {plans}")
         logger.info(f"[ plan_repository ] get_member_plans() 결과 타입 : {type(plans)}")
-        print("💡[ plan_repository ] get_member_plans() 결과 : ", plans)
-        print("💡[ plan_repository ] get_member_plans() 결과 타입 : ", type(plans))
         return plans
     except Exception as e:
         logger.error(f"[ plan_repository ] get_member_plans() 에러 : {e}")

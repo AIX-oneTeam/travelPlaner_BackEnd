@@ -52,7 +52,18 @@ class Member(SQLModel, table=True):
             raise ValueError(f"Invalid phone number: {phone_number}") from e
         return values
 
-       
+class MessageToken(SQLModel, table=True):
+    __tablename__ = "message_token"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int = Field(foreign_key="member.id")
+    token: str = Field(max_length=2083)
+    created_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+    )
+    updated_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+    )
+
 class Plan(SQLModel, table=True):
     __tablename__ = "plan"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -105,7 +116,6 @@ class Spot(SQLModel, table=True):
 
     @validator("business_status", pre=True, always=True)
     def convert_bool_to_int(cls, value):
-        print(f"Validating business_status: {value}")
         if isinstance(value, bool):
             return int(value)  # True -> 1, False -> 0
         elif isinstance(value, str) and value.lower() in {"true", "false"}:
