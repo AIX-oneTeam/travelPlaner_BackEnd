@@ -24,6 +24,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # FCM 어드민 JSON 생성하기
+      - name: Create FCM Admin JSON
+        id: create-json-1
+        uses: jsdaniell/create-json@v1.2.3
+        with:
+          name: "FCM_ADMIN.json"
+          json: ${{ secrets.FCM_ADMIN }}
+          dir: app/services/messaging/
+
       # AWS ECR 퍼블릭 로그인
       - name: Login to Amazon ECR Public
         env:
@@ -103,7 +112,6 @@ jobs:
               --output text | while read -r name value; do
               echo "${name##*/}=$value" >> .env
             done
-
 
             echo "새 컨테이너를 시작합니다..."
             docker run -d --name backend -p 8000:8000 --env-file .env ${{ secrets.ECR_REPOSITORY_URI }}/backend:latest
