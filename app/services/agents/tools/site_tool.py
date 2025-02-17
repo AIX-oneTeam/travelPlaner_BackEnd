@@ -1,13 +1,15 @@
 import asyncio
 import aiohttp
 from crewai.tools import BaseTool
-from typing import Dict, Union
+from typing import Union
 from dotenv import load_dotenv
 import os
 import re
-import httpx
+import logging
 
-# Load environment variables
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
@@ -18,14 +20,17 @@ def clean_query(query: str) -> str:
     Cleans the input string by:
     1. Removing content after a pipe (|).
     2. Removing parentheses and the text within.
-    3. Retaining only Korean, English, digits, whitespace, and hyphens (-).
+    3. Retaining only Korean, English, digits, whitespace, hyphens (-), commas, and periods.
     4. Trimming leading and trailing whitespace.
     """
     clean_lines = []
     for line in query.splitlines():
+        # Remove content after a pipe character
         line = line.split("|")[0]
-        line = re.sub(r"\([^)]*\)", "", line)
-        line = re.sub(r"[^\uAC00-\uD7A3a-zA-Z0-9\s\-]", "", line)
+        # Remove text within parentheses (non-greedy)
+        line = re.sub(r"\(.*?\)", "", line)
+        # Allow Korean, English, digits, whitespace, hyphen, comma, period
+        line = re.sub(r"[^\uAC00-\uD7A3a-zA-Z0-9\s\-,.]", "", line)
         line = line.strip()
         if line:
             clean_lines.append(line)
@@ -34,17 +39,19 @@ def clean_query(query: str) -> str:
 
 async def check_url_openable_async(url: str) -> bool:
     """
-    Sends a HEAD request to the given URL to verify its accessibility.
-    Returns True if the HTTP status code is between 200 and 399.
+    Sends a HEAD request using aiohttp to verify the URL's accessibility.
+    Returns True if the status code is between 200 and 399.
     """
     if not url:
         return False
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.head(url, follow_redirects=True)
-            return 200 <= response.status_code < 400
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=5)
+        ) as session:
+            async with session.head(url, allow_redirects=True) as response:
+                return 200 <= response.status < 400
     except Exception as e:
-        print(f"Error checking URL '{url}': {e}")
+        logger.error(f"Error checking URL '{url}': {e}")
         return False
 
 
@@ -69,9 +76,9 @@ class NaverTouristWebSearchTool(BaseTool):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Referer": "https://search.naver.com/",
         }
-        query = clean_query(query)
-        print(f"[Tourist Web Search Query]: {query}")
-        params = {"query": query, "display": 3, "start": 1, "sort": "sim"}
+        cleaned_query = clean_query(query)
+        logger.info(f"[Tourist Web Search Query]: {cleaned_query}")
+        params = {"query": cleaned_query, "display": 3, "start": 1, "sort": "sim"}
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers, params=params) as response:
@@ -81,7 +88,7 @@ class NaverTouristWebSearchTool(BaseTool):
                         return ""
                     results = []
                     for item in items:
-                        # Remove HTML tags
+                        # Remove HTML tags from title
                         title = re.sub(r"<.*?>", "", item.get("title", ""))
                         link = item.get("link", "")
                         description = item.get("description", "")
@@ -90,7 +97,7 @@ class NaverTouristWebSearchTool(BaseTool):
                         )
                     return "\n".join(results)
         except Exception as e:
-            print(f"Tourist web search error: {e}")
+            logger.error(f"Tourist web search error: {e}")
             return ""
 
     def _run(self, query: str) -> str:
@@ -122,10 +129,10 @@ class NaverTouristImageSearchTool(BaseTool):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Referer": "https://search.naver.com/",
         }
-        query = clean_query(query)
-        print(f"[Tourist Image Search Query]: {query}")
+        cleaned_query = clean_query(query)
+        logger.info(f"[Tourist Image Search Query]: {cleaned_query}")
         params = {
-            "query": query,
+            "query": cleaned_query,
             "display": 5,
             "sort": "sim",
             "filter": "all",
@@ -143,7 +150,7 @@ class NaverTouristImageSearchTool(BaseTool):
                             return img_url
                     return "https://via.placeholder.com/300x200?text=No+Image"
         except Exception as e:
-            print(f"Tourist image search error: {e}")
+            logger.error(f"Tourist image search error: {e}")
             return "https://via.placeholder.com/300x200?text=Error"
 
     def _run(self, query: Union[str, dict]) -> str:
