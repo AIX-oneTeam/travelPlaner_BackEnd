@@ -9,7 +9,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 router = APIRouter()
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @router.get("/callback")

@@ -116,7 +116,6 @@ class Spot(SQLModel, table=True):
 
     @validator("business_status", pre=True, always=True)
     def convert_bool_to_int(cls, value):
-        print(f"Validating business_status: {value}")
         if isinstance(value, bool):
             return int(value)  # True -> 1, False -> 0
         elif isinstance(value, str) and value.lower() in {"true", "false"}:

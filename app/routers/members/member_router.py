@@ -4,9 +4,11 @@ from litellm import BaseModel
 from app.dtos.common.response import ErrorResponse, SuccessResponse
 from app.repository.db import get_async_session
 from sqlmodel.ext.asyncio.session import AsyncSession
-
 from app.repository.fcmToken.fcm_token_respository import save_fcm_token
 from app.repository.members.mebmer_repository import get_memberId_by_email
+
+import logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -21,7 +23,7 @@ async def logout(response: Response):
     """
     response.delete_cookie(key="access_token", secure=False, samesite="None", httponly=True)
     response.delete_cookie(key="refresh_token", secure=False, samesite="None", httponly=True)
-    print("로그아웃 되었습니다.")
+    logger.info("로그아웃 되었습니다.")
     return {"message": "로그아웃 되었습니다."}
 
 @router.post("/fcmToken")
@@ -35,10 +37,9 @@ async def reg_fcm_token(request: Request, fcm_token_request: FcmTokenRequest, se
         if request.state.user is not None:
             member_email = request.state.user.get("email")
             member_id = await get_memberId_by_email(member_email, session)
-            print("💡[ member_router ] member_id : ", member_id)
         else:
             member_id = await get_memberId_by_email(fcm_token_request.email, session)
-            print("💡[ member_router ] member_id : ", member_id)
+
         # 1. 토큰 저장
         await save_fcm_token(member_id, fcm_token_request.fcm_token, session)
         return SuccessResponse(message="토큰 저장에 성공했습니다.")

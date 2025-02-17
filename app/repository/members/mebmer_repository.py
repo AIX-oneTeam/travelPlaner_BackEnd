@@ -21,9 +21,9 @@ async def get_member_by_id(member_id: int, session: AsyncSession) -> Member:
     except Exception as e:
         logger.error(f"[ memberRepository ] get_member_by_id() 에러 : {e}")
 
-async def get_memberId_by_email(email: str, session: AsyncSession) -> Member:
+async def get_memberId_by_email(email: str, provider: str, session: AsyncSession) -> Member:
     try:
-        query = select(Member).where((Member.email == email))
+        query = select(Member).where((Member.email == email) & (Member.oauth == provider))
         result = await session.exec(query)
         member = result.first()
         return member.id if member is not None else None
@@ -32,7 +32,6 @@ async def get_memberId_by_email(email: str, session: AsyncSession) -> Member:
 
 async def is_exist_member_by_email(email: str, oauth: str, session: AsyncSession) -> bool:
     try:
-        print("session type : ", type(session))
         query = select(Member).where((Member.email == email) & (Member.oauth == oauth))
         result = await session.exec(query)
         member = result.first()
