@@ -55,10 +55,11 @@ async def create_plan(request_data: PlanRequest, request: Request, session: Asyn
         if(request.state.user is not None):
             logger.info("request.state.user : ", request.state.user)
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
         else:
             logger.info("[ plan_router ] request_data.email : ", request_data.email)
-            member_id = await get_memberId_by_email(request_data.email, session)
+            member_id = await get_memberId_by_email(email=request_data.email, session=session)
             logger.info("[ plan_router ] member_id : ", member_id)
 
         # 1. 일정 저장
@@ -81,7 +82,8 @@ async def read_member_plans(request: Request, session: AsyncSession = Depends(ge
     try:
         if(request.state.user is not None):
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
             logger.info("💡[ plan_router ] member_id : ", member_id)
             
         else:
@@ -99,11 +101,12 @@ async def update_plan(plan_id: int, request_data: PlanRequest, request: Request,
     try:
         if(request.state.user is not None):
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
             logger.info("💡[ plan_router ] member_id : ", member_id)
         # local 테스트용
         elif(request_data.email is not None):
-            member_id = await get_memberId_by_email(request_data.email, session)
+            member_id = await get_memberId_by_email(email=request_data.email, session=session)
             logger.info("💡[ plan_router ] member_id : ", member_id)
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
@@ -155,7 +158,8 @@ async def erase_plan(plan_id: int, request: Request, session: AsyncSession = Dep
     try:
         if(request.state.user is not None):
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         

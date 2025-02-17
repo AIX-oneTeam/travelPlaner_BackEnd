@@ -36,9 +36,10 @@ async def reg_fcm_token(request: Request, fcm_token_request: FcmTokenRequest, se
     try:
         if request.state.user is not None:
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, provider=provider, session=session)
         else:
-            member_id = await get_memberId_by_email(fcm_token_request.email, session)
+            member_id = await get_memberId_by_email(email=fcm_token_request.email, session=session)
 
         # 1. 토큰 저장
         await save_fcm_token(member_id, fcm_token_request.fcm_token, session)
