@@ -1,6 +1,11 @@
+from fastapi import Request
 from pyfcm import FCMNotification
 from dotenv import load_dotenv
+from sqlmodel.ext.asyncio.session import AsyncSession
 import os
+
+from app.repository.fcmToken.fcm_token_respository import get_fcm_token
+from app.services.members.member_service import get_member_id_by_request
 
 load_dotenv()
 
@@ -20,6 +25,23 @@ def send_push_message(token: str, title: str, body: str):
         notification_image="https://easyTravel.jomalang.com/icons/Easy_Travel.png",
     )
     return result
+
+# 푸시 메시지 전송
+async def send_push_message(request:Request, session:AsyncSession, title:str, body:str):
+        try:
+            member_id = await get_member_id_by_request(request)
+            if member_id is not None:
+                token = await get_fcm_token(member_id, session)
+                print("💡[ travel_all_schedule_agent_router ] token : ", token)
+                if token is not None:
+                    send_push_message(token=token, title=title, body=body)
+                else:
+                    print("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
+            else:
+                print("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
+        except Exception as e:
+            print("💡[ travel_all_schedule_agent_router ] 푸시 메시지 전송 오류: ", e)
+
 
 
 
