@@ -41,7 +41,7 @@ async def close_redis() -> None:
         logging.info("Redis 연결 종료")
         redis_client = None
 
-def get_redis_client() -> Redis:
+async def get_redis_client() -> Redis:
     """현재 Redis 클라이언트를 반환하는 함수"""
     if not redis_client:
         raise ConnectionError("Redis client is not initialized")
@@ -50,4 +50,4 @@ def get_redis_client() -> Redis:
 # FastAPI 의존성 주입을 위한 함수
 async def get_redis() -> Redis:
     """의존성 주입을 위한 Redis 클라이언트 제공 함수"""
-    return get_redis_client()
+    return await get_redis_client()
