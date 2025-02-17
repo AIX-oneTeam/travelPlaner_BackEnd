@@ -11,7 +11,7 @@ async def get_member_id_by_request(request: Request, session: AsyncSession):
         if request.state.user is not None:
             email = request.state.user.get("email")
             provider = request.state.user.get("provider")
-            member_id = await get_memberId_by_email(email, provider, session)
+            member_id = await get_memberId_by_email(email=email, session=session, provider=provider)
             logger.info("💡[ member_service ] get_member_id_by_request() member_id : ", member_id)
             return member_id
         else:
