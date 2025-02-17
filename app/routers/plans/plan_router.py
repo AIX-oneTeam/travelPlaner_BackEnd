@@ -18,8 +18,6 @@ from app.repository.plans.plan_repository import delete_plan
 import logging
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-
-logging.basicConfig()
 logging.getLogger("sqlalchemy.engine").setLevel(logging.DEBUG)
 logging.getLogger("sqlalchemy.pool").setLevel(logging.DEBUG)
 logging.getLogger("sqlalchemy.orm").setLevel(logging.DEBUG)
