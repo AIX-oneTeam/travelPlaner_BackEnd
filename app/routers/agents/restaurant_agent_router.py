@@ -6,6 +6,7 @@ from redis.asyncio import Redis
 from typing import Optional
 from app.routers.agents.travel_all_schedule_agent_router import TravelPlanRequest
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
+from redis.asyncio import Redis
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ async def get_restaurants(
     try:
         # model_dump()를 사용하여 입력 데이터를 dict 형태로 변환
         input_data = user_input.model_dump()
+        print(f"💥💥input_data : {input_data}")
 
         if prompt:
             input_data["prompt"] = prompt
