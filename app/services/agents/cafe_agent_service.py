@@ -77,7 +77,8 @@ class CafeAgentService:
         self.tasks = self._create_tasks()
         
         self.tasks["researcher_task"].context = [self.tasks["collector_task"]]
-        self.tasks["reviewer_task"].context = [self.tasks["researcher_task"]]
+        self.tasks["researcher_detail_task"].context = [self.tasks["researcher_task"]]
+        self.tasks["reviewer_task"].context = [self.tasks["researcher_detail_task"]]
         self.tasks["decider_task"].context = [self.tasks["reviewer_task"]]
         self.draft_crew = Crew(agents=[self.agents['decider']], tasks=[self.tasks['decider_task']], verbose=True)  
         self.crew = Crew(agents=list(self.agents.values()), tasks=list(self.tasks.values()),process=Process.sequential, verbose=True)  
@@ -85,10 +86,10 @@ class CafeAgentService:
     def _create_agents(self) -> Dict[str, Agent]:
         return {
             "collector" : Agent(
-                role="카페 선별 및 리스트 생성 전문가",
-                goal="고객의 여행지역에 있는 카페들을 찾고 고객의 조건에 부합하는 카페들의 후보 리스트를 작성합니다. 카페의 중복은 없어야 합니다.",
+                role="카페 리스트 생성 전문가",
+                goal="포스팅된 횟수가 많은 카페부터 내림차순으로 정렬해주세요",
                 backstory="""
-                사용자의 여행 지역에 있는 카페를 찾고 고객이 좋아할 것 같은 카페들을 중복되지 않게 정리해주세요.
+                포스팅된 횟수가 많은 카페부터 내림차순으로 정렬해주세요
                 """,
                 tools=[self.get_cafe_list_tool],
                 allow_delegation=False,
@@ -104,6 +105,19 @@ class CafeAgentService:
                 블로그에서 카페의 기본 정보를 수집하고, 고객의 여행 지역에 위치하지 않은 카페는 리스트에서 삭제해주세요. 
                 """,
                 tools=[self.get_cafe_info_tool],
+                allow_delegation=False,
+                max_iter=1,
+                llm=self.llm,
+                verbose=True,
+                stop_on_failure=True
+            ),
+            "researcher_detail" : Agent(
+                role="카페 상세 정보 수집 및 업종 검증가",
+                goal="카페의 상세 정보를 수집하고 업종이 카페가 아닌 장소는 삭제합니다.",
+                backstory="""
+                카페의 상세 정보를 수집하고, 카페가 아닌 장소는 리스트에서 삭제해주세요. 
+                """,
+                tools=[self.get_cafe_business_info_tool],
                 allow_delegation=False,
                 max_iter=1,
                 llm=self.llm,
@@ -129,7 +143,6 @@ class CafeAgentService:
                 backstory="""
                 고객에게 가장 적합한 카페를 선별하고 추천해줍니다.
                 """,
-                tools=[self.get_cafe_business_info_tool],
                 allow_delegation=False,
                 max_iter=1,
                 llm=self.llm,
@@ -143,16 +156,19 @@ class CafeAgentService:
                 description="""
                 1. tool 사용시 "{main_location}"과 "keywords"를 순서대로 입력하세요.
                 - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트
-                2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요.
+                - 각각의 키워드는 하나의 형용사 또는 명사여야 하고, "카페"와 "지역명" "추천"은 제외해주세요.
+                - 키워드는 최대 3개까지만 입력 가능합니다.
+                2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요. 
                 3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
-                4. 포스팅 횟수가 동일한 카페들은 "비추' 등의 부정적인 의견이 적은 포스팅부터 먼저 나열해주세요. 
-                5. 카페 추천 또는 카페 후기가 아닌 글은 삭제해주세요 
+                tool output이 반환한 모든 url을 빠짐없이 정리해주세요.
                 """,
                 expected_output="""
-                - 카페 이름
-                - 포스팅 횟수
-                - 카페 설명
-                - 블로그 url (포스팅 횟수 만큼)
+                1. "keywords" : 사용한 키워드 리스트
+                2. n_cafe:"총 찾은 카페 갯수"
+                3. 카페 리스트
+                - "name": "카페 이름"
+                - "n_posting": "포스팅 횟수"
+                - "blog_urls" : "블로그 url 리스트"
                 """,        
                 agent=self.agents["collector"],
             ),
@@ -160,33 +176,54 @@ class CafeAgentService:
                 description="""
                 1. collector가 조사한 블로그들의 url만 리스트로 묶어 tool의 input으로 사용하세요. url은 None값이나 null이면 안됩니다. 
                 2. tool의 output을 보고 address가 {main_location}에 위치하지 않은 카페는 삭제해주세요.
-                3. 카페가 아닌 호텔, 리조트 등의 숙소나 미용실 등 다른 업종인 경우 삭제해주세요.
-                4. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
-                5. 포스팅 횟수가 동일한 카페들은 "비추' 등의 부정적인 의견이 적은 포스팅부터 먼저 나열해주세요. 
                 """,
-                expected_output="""             
-                - 이름
-                - 포스팅 횟수
-                - 카페 설명
-                - placeId
-                - 주소
-                - 이미지url
-                - 위도
-                - 경도
-                - 전화번호
-                - 홈페이지url
-                - 운영 시간(모르는 경우 "정보 없음")
+                expected_output="""
+                1. "keywords" : 사용한 키워드 리스트
+                2. n_cafe:"총 찾은 카페 갯수"             
+                3. 카페 리스트
+                - "name": "카페이름"
+                - "n_posting": "포스팅 횟수"
+                - "placeId": "placeId"
+                - "address": "카페주소"
+                - "img_url": "img_url"
+                - "latitude": "latitude"
+                - "longitude": "longitude"
+                - "phone_number": "전화번호"
                 """,        
                 agent=self.agents["researcher"],
                 context=[]
             ),
-            "reviewer_task" : Task(
+            "researcher_detail_task" : Task(
                 description="""
                 1. researcher가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
-                2. researcher가 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
-                3. 카페 특징은 Decider가 고객 요구사항에 맞는 카페인지 점검할 수 있도록 구체적으로 써주세요.
-                4. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
-                5. 리뷰를 보고, 카페가 아닌 식당, 미용실, 호텔, 리조트 등의 경우 삭제해주세요.
+                2. tool의 output을 보고 카페의 세부 정보를 수집하고, category에 "카페"가 포함 되지 않은 장소는 삭제해주세요.
+                """,
+                expected_output="""
+                1. "keywords" : 사용한 키워드 리스트
+                2. n_cafe:"총 찾은 카페 갯수"             
+                3. 카페 리스트             
+                - "name": "카페이름"
+                - "n_posting": "포스팅 횟수"
+                - "placeId": "placeId"
+                - "address": "카페주소"
+                - "img_url": "img_url"
+                - "latitude": "latitude"
+                - "longitude": "longitude"
+                - "phone_number": "전화번호"
+                - "url": "홈페이지url",
+                - "business_hour": "운영시간",
+                - "category": "업종"
+                """,        
+                agent=self.agents["researcher_detail"],
+                context=[]
+            ),
+            "reviewer_task" : Task(
+                description="""
+                1. researcher_detail이 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
+                2. 반드시 tool_output이 반환한 카페의 수 만큼 카페를 반환해주세요.
+                3. researcher_detail이 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
+                4. 카페 특징은 고객 요구사항에 맞는 카페인지 점검할 수 있도록 구체적으로 써주세요.
+                5. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
                 """,
                 expected_output="""
                 중복되지 않는 카페 리스트를 반환해주세요.
@@ -200,19 +237,17 @@ class CafeAgentService:
                 description="""
                 1. 고객의 요구사항({prompt}), 여행 컨셉({concepts}), 주 연령대({ages})가 반영된 카페를 가장 우선적으로 선택하세요.
                 2. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
-                3. placeId를 리스트로 묶어 tool의 input값으로 사용해 각 카페의 운영 시간과 웹사이트 정보를 수집하세요.
-                4. description에는 카페의 주요 특징과 시그니처메뉴, 사람들이 공통적으로 좋아했던 부분을 요약해주세요.
-                5. 모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
-                6. {main_location}에 위치한 카페만 선택하세요.
-                7. 호텔, 리조트 등의 숙소나 미용실 등 다른 업종인 경우 선택하지 마세요.
+                3. description에는 카페의 주요 특징과 시그니처메뉴, 사람들이 공통적으로 좋아했던 부분을 요약해주세요.
+                4. 모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
+                5. 중복되지 않은 서로 다른 카페 리스트를 반환해주세요.
                 참고 카페 리스트 : {cached_cafe_lists}
+                고객 요구사항({prompt})이 없으면 5개 이상의 카페를, 그렇지 않으면 {n}개의 카페를 반환하세요.
                 """,
                 expected_output="""
-                prompt({prompt})가 유효한 값(빈 문자열(""), None, 또는 null이 아닌 경우)이면 5개의 카페를, 그렇지 않으면 {n}*2개의 카페를 반환하세요.
                 spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
-                order는 방문할 순서입니다. spot_time을 기준으로 빠른 시간부터 오름차순 정렬해주세요. 순서는 1부터 시작합니다.
                 spot_category는 항상 3으로 고정해주세요
-                day_x는 {n}일의 여행 일정 중 몇일차인지 입니다.(만약, day_x:1 이라면 1일차에 방문한다는 의미)  
+                day_x는 {days}일의 여행 일정 중 몇일차인지 입니다.(만약, day_x:1 이라면 1일차에 방문한다는 의미)  
+                order는 하루 중 몇번째로 방문할지에 대한 순서입니다. order_x가 바뀔때마다 1부터 새로 시작하며, spot_time을 기준으로 오름차순 정렬해주세요.
                 business_status는 boolean으로 반환해주세요.
                 """,
                 context=[],        
@@ -232,8 +267,10 @@ class CafeAgentService:
        
         input_data["concepts"] = ', '.join(input_data.get('concepts',[]))
         input_data["prompt"] = prompt
-        input_data["n"] = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
-
+        days = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
+        input_data["days"] = days
+        input_data["n"] = days*2
+        
         if redis_client is None:
             raise ValueError("[CafeAgent] 에러 - Redis 연결을 확인해주세요")
   
@@ -241,12 +278,11 @@ class CafeAgentService:
             cached_cafe_lists = await get_cafes_by_tag(input_data["main_location"], redis_client) or []
             print(f"cached_cafe_lists: {cached_cafe_lists}")
             input_data["cached_cafe_lists"] = cached_cafe_lists
-            
-            if len(cached_cafe_lists) < (input_data["n"])*2:
+            if len(cached_cafe_lists) < days*2:
                 try:
                     result = await self.crew.kickoff_async(inputs=input_data)
                     reviewer_result = self.tasks['reviewer_task'].output.pydantic.model_dump()
-                    print(f"result_task3_output_raw:{reviewer_result}")
+                    print(f"reviewr_task_output_raw:{reviewer_result}")
                     await save_cafe_info(reviewer_result,redis_client)
                     print(f"result : {result}")
                     return result.pydantic.model_dump()

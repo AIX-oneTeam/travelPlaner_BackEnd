@@ -41,6 +41,8 @@ def simplify_address(region: str) -> str:
         # 기본 처리
         if "특별자치도" in prov:
             return prov.replace("특별자치도", "")
+        elif "특별시" in prov:
+            return prov.replace("특별시", "")
         elif "광역시" in prov:
             return prov.replace("광역시", "")
         elif prov.endswith("도"):
@@ -73,9 +75,12 @@ def simplify_address(region: str) -> str:
     # 두번째 부분(구/군/시)이 있으면 처리
     if len(parts) > 1:
         district_str = parts[1]
-        # 부산의 경우, district가 이미 province_short로 시작하면 district만 사용 (부산진구)
+        # 부산진구
         if province_str == "부산광역시" and district_str.startswith(province_short):
             result = district_str
+        # 4글자구면 시/도 생략
+        elif district_str != "부산진구" and len(district_str)==4:
+            result = district_str[:-1]
         else:
             district_processed = process_district(district_str, province_short)
             result = f"{province_short} {district_processed}"
@@ -83,59 +88,6 @@ def simplify_address(region: str) -> str:
         result = province_short
         
     return result
-
-class RedisCafeSearchTool(BaseTool):
-    name: str = "RedisCafeSearchTool"
-    description: str = "Redis에서 특정 위치의 카페 정보 검색"
-
-    async def _fetch_query(self, client: httpx.AsyncClient, query: str) -> str:
-
-        url = "https://openapi.naver.com/v1/search/blog.json"
-        headers = {
-            "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
-            "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
-        }
-        params = {"query": query, "display": 20, "start": 1, "sort": "sim"}
-        try:
-            resp = await client.get(url, headers=headers, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("items", [])
-            if not items:
-                return f"[NaverBlogSearchTool] '{query}' 검색 결과 없음."
-            results = []
-            for item in items:
-                title = item.get("title", "")
-                link = item.get("link", "")
-                desc = item.get("description", "")
-                results.append(f"제목: {title}\n링크: {link}\n설명: {desc}\n")
-            result_text = "\n".join(results)
-            return f"검색 쿼리: {query}\n결과:\n{result_text}"
-        except Exception as e:
-            return f"[NaverBlogSearchTool] 검색 쿼리 {query} 에러: {str(e)}"
-        
-    async def _arun(self, main_location: str, keywords:List[str]) -> str:
-        if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
-            return "[NaverBlogSearchTool] 네이버 API 자격 증명이 없습니다."
-        
-        simplified_location = simplify_address(main_location)
-        # keywords가 비어있으면 기본 검색어를 사용
-        if keywords:
-            keywords_query = f"{simplified_location} 카페 +{' +'.join(keywords)}"
-        else:
-            keywords_query = f"{simplified_location} 카페"
-        
-        querys =[keywords_query, simplified_location+" 카페", simplified_location+" 느좋 카페"]
-        
-        async with httpx.AsyncClient() as client:
-            # 각 검색어마다 비동기 요청(task)을 생성합니다.
-            tasks = [self._fetch_query(client, query) for query in querys]
-            results = await asyncio.gather(*tasks)
-            # 각 검색 결과를 구분하기 위해 빈 줄 두 개로 연결
-            return "\n---------------\n".join(results)
-            
-    def _run(self, main_location: str, keywords:List[str]) -> str:
-        return asyncio.run(self._arun(main_location, keywords))
     
 class NaverBlogSearchTool(BaseTool):
     name: str = "NaverBlogSearch"
@@ -225,8 +177,8 @@ class NaverBlogCralwerTool(BaseTool):
             data_module_content = a_tag.get("data-linkdata")
             data = json.loads(data_module_content)
             
-            place_id = data.get("placeId")
-            if not place_id:  # placeId가 없는 경우만 체크
+            placeId = data.get("placeId")
+            if not placeId:  # placeId가 없는 경우만 체크
                 return None
             
             # 네이버 블로그 본문 추출
@@ -245,7 +197,7 @@ class NaverBlogCralwerTool(BaseTool):
             #     cleaned_text = emoji.replace_emoji(cleaned_text, replace='')
                                 
             return {
-                "placeId": place_id,
+                "placeId": placeId,
                 "name": data.get("name", ""),
                 "address": data.get("address", ""),
                 "latitude": data.get("latitude", ""),
@@ -273,9 +225,9 @@ class NaverBlogCralwerTool(BaseTool):
             # 중복 제거는 여기서 한 번에 처리
             for result in results:
                 if isinstance(result, dict) and "error" not in result and result.get("placeId"):
-                    place_id = result["placeId"].strip()  # 앞뒤 공백 제거
-                    if place_id not in _unique_places:  # 이미 있는 placeId가 아니라면 추가
-                        _unique_places[place_id] = result
+                    placeId = result["placeId"].strip()  # 앞뒤 공백 제거
+                    if placeId not in _unique_places:  # 이미 있는 placeId가 아니라면 추가
+                        _unique_places[placeId] = result
                         
             return json.dumps(list(_unique_places.values()), indent=4, ensure_ascii=False)
         
@@ -344,12 +296,12 @@ class NaverBusinessInfoTool(BaseTool):
     name: str = "NaverBusinessInfoCralwer"
     description: str = "네이버 업체 정보를 크롤링해 카페 운영시간, 웹사이트 정보 추출"
     
-    async def _fetch_business_info(self, client: httpx.AsyncClient, place_id: str) -> str:
+    async def _fetch_business_info(self, client: httpx.AsyncClient, placeId: str) -> str:
         """
         비동기 정보 스크래퍼. 네이버 지도에서 카페를 정적 크롤링을 통해 검색하고 정보를 가져오는 도구.
         """
 
-        url = f"https://m.place.naver.com/restaurant/{place_id}/home"
+        url = f"https://m.place.naver.com/restaurant/{placeId}/home"
         headers = {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
             "Referer": "https://m.place.naver.com/"
@@ -361,9 +313,10 @@ class NaverBusinessInfoTool(BaseTool):
             
             # 기본 반환 데이터
             result = {
-                "place_id": place_id,
+                "placeId": placeId,
                 "url": "정보 없음",
-                "business_hour": "정보 없음"
+                "business_hour": "정보 없음",
+                "category": "정보 없음"
             }
             
             # URL 정보 추출
@@ -381,11 +334,18 @@ class NaverBusinessInfoTool(BaseTool):
                         result["business_hour"] = span.text.strip() or "정보 없음"
             except:
                 pass
+            
+            # 업종 정보 추출
+            try:
+                if category_span := soup.find("span", class_="lnJFt"):
+                    result["category"] = category_span.text.strip() or "정보 없음"
+            except:
+                pass
 
             return result
                 
         except Exception as e:
-            return f"[cafe_tool:NaverBusinessInfoTool] 에러: {str(e)}"
+            return f"[cafe_tool:_fetch_business_info] 에러: {str(e)}"
     
     async def _arun(self, placeIds: List[str]) -> str:
         """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
@@ -402,7 +362,13 @@ class NaverBusinessInfoTool(BaseTool):
     def _run(self, placeIds: List[str]) -> str:
         """동기 함수에서 실행 (queryplaceIds는 장소 placeId 리스트)"""
         return asyncio.run(self._arun(placeIds))
-                
+
+# placeIds = ["1785877248", "1614878009","1158509033"]
+# info_tool = NaverBusinessInfoTool()
+# result = await info_tool._arun(placeIds)
+# print(result)
+    
+                    
 #---아래부터 사용하지 않는 툴-------------------------------------------------------------
 
 # from bs4 import BeautifulSoup
@@ -483,10 +449,10 @@ class NaverBusinessInfoTool(BaseTool):
 #             EC.visibility_of_all_elements_located((By.CSS_SELECTOR, "li._lazyImgContainer")))
                 
 #         for spot in spots:
-#             place_id = spot.get_attribute("data-id")
-#             map_url = f"https://m.place.naver.com/restaurant/{place_id}/location?filter=location&selected_place_id={place_id}"
-#             url = f"https://m.place.naver.com/restaurant/{place_id}/home"
-#             # 테스트 : https://m.place.naver.com/restaurant/1932943275/location?reviewSort=recent&filter=location&selected_place_id=1932943275
+#             placeId = spot.get_attribute("data-id")
+#             map_url = f"https://m.place.naver.com/restaurant/{placeId}/location?filter=location&selected_place_id={placeId}"
+#             url = f"https://m.place.naver.com/restaurant/{placeId}/home"
+#             # 테스트 : https://m.place.naver.com/restaurant/1932943275/location?reviewSort=recent&filter=location&selected_placeId=1932943275
 
 #             try:
 #                 address = spot.find_element(By.CLASS_NAME, "item_address").text.strip().replace("주소보기\n", "")
@@ -499,7 +465,7 @@ class NaverBusinessInfoTool(BaseTool):
 #                 image_url = "이미지 없음"
                 
 #             spot_info = {
-#                 "place_id": str(place_id),
+#                 "placeId": str(placeId),
 #                 "kor_name": spot.get_attribute("data-title"),
 #                 "address": address,
 #                 "url": url,
@@ -521,11 +487,11 @@ class NaverBusinessInfoTool(BaseTool):
 #     finally:
 #         WebDriver().quit_driver()    
         
-# async def fetch_review(session, place_id):
+# async def fetch_review(session, placeId):
 #     """
 #     비동기 리뷰 스크래퍼. 네이버 지도에서 카페를 정적 크롤링을 통해 검색하고 리뷰를 가져오는 도구.
 #     """
-#     url = f"https://m.place.naver.com/restaurant/{place_id}/review/visitor?reviewSort=recent"
+#     url = f"https://m.place.naver.com/restaurant/{placeId}/review/visitor?reviewSort=recent"
 #     headers = {
 #         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
 #         "Referer": "https://m.place.naver.com/"
@@ -533,8 +499,8 @@ class NaverBusinessInfoTool(BaseTool):
     
 #     async with session.get(url, headers=headers) as response:
 #         if response.status != 200:
-#             print(f"{place_id} 요청 실패: {response.status}")
-#             return {"place_id": place_id, "reviews": []}
+#             print(f"{placeId} 요청 실패: {response.status}")
+#             return {"placeId": placeId, "reviews": []}
 
 #         html = await response.text()
 #         soup = BeautifulSoup(html, "html.parser")
@@ -542,16 +508,16 @@ class NaverBusinessInfoTool(BaseTool):
 #         reviews_list = [emoji.replace_emoji(review.text, replace='') for review in reviews]
 #         # print(len(reviews_list)) #10개 리뷰
 #         return {
-#             "place_id": place_id,
+#             "placeId": placeId,
 #             "reviews": reviews_list
 #         }
 
-# async def fetch_business(session, place_id):
+# async def fetch_business(session, placeId):
 #     """
 #     비동기 정보 스크래퍼. 네이버 지도에서 카페를 정적 크롤링을 통해 검색하고 정보를 가져오는 도구.
 #     """
 
-#     url = f"https://m.place.naver.com/restaurant/{place_id}/home"
+#     url = f"https://m.place.naver.com/restaurant/{placeId}/home"
 #     headers = {
 #         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
 #         "Referer": "https://m.place.naver.com/"
@@ -559,8 +525,8 @@ class NaverBusinessInfoTool(BaseTool):
     
 #     async with session.get(url, headers=headers) as response:
 #         if response.status != 200:
-#             print(f"{place_id} 요청 실패: {response.status}")
-#             return {"place_id": place_id, "reviews": []}
+#             print(f"{placeId} 요청 실패: {response.status}")
+#             return {"placeId": placeId, "reviews": []}
 
 #         html = await response.text()
 #         soup = BeautifulSoup(html, "html.parser")
@@ -579,7 +545,7 @@ class NaverBusinessInfoTool(BaseTool):
 #             business_hour = "정보 없음"
         
 #         return {
-#             "place_id": place_id,
+#             "placeId": placeId,
 #             "url": url,
 #             "business_hour": business_hour
 #         }
@@ -613,12 +579,12 @@ class NaverBusinessInfoTool(BaseTool):
 
 #     async def _collect_reviews(self, cafe_list):
 #         async with aiohttp.ClientSession() as session:
-#             tasks = [fetch_review(session, cafe["place_id"]) for cafe in cafe_list]
+#             tasks = [fetch_review(session, cafe["placeId"]) for cafe in cafe_list]
 #             return await asyncio.gather(*tasks)
      
 #     async def _collect_business_info(self, cafe_list):
 #         async with aiohttp.ClientSession() as session:
-#             tasks = [fetch_business(session, cafe["place_id"]) for cafe in cafe_list]
+#             tasks = [fetch_business(session, cafe["placeId"]) for cafe in cafe_list]
 #             return await asyncio.gather(*tasks)
             
 #     def _run(self, query: str) -> str:
@@ -661,7 +627,7 @@ class NaverBusinessInfoTool(BaseTool):
 
 # load_dotenv()
 # SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-# NAVER_PLACE_ID = os.getenv("NAVER_PLACE_ID")
+# NAVER_placeId = os.getenv("NAVER_placeId")
 # NAVER_PLACE_SECRET = os.getenv("NAVER_PLACE_SECRET")
 
 # class QuerySchema(BaseModel):
@@ -710,7 +676,7 @@ class NaverBusinessInfoTool(BaseTool):
 #                 phoneNumber = place.get("phoneNumber", "")
 #                 openingHours = place.get("openingHours", "")
 #                 thumbnailUrl = place.get("thumbnailUrl", "")                                          
-#                 map_url = f"https://www.google.com/maps/place/?q=place_id:{place.get('placeId', '')}"
+#                 map_url = f"https://www.google.com/maps/place/?q=placeId:{place.get('placeId', '')}"
 #                 results.append(f"이름: {title}\n주소: {address}\n위도: {latitude}\n경도: {longitude}\n홈페이지: {website}\n전화번호: {phoneNumber}\n운영시간: {openingHours}\n썸네일: {thumbnailUrl}\n지도주소: {map_url}\n---")
 
 #             return "\n".join(results)
@@ -732,7 +698,7 @@ class NaverBusinessInfoTool(BaseTool):
         
 #         search_url = "https://openapi.naver.com/v1/search/local.json"
 #         headers = {
-#             "X-Naver-Client-Id": NAVER_PLACE_ID,
+#             "X-Naver-Client-Id": NAVER_placeId,
 #             "X-Naver-Client-Secret": NAVER_PLACE_SECRET,
 #         }
 
