@@ -1,13 +1,18 @@
 import os
-import traceback
 import json
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
-import httpx
+import aiohttp
+import logging
+import threading
 from crewai import Agent, Task, Crew, LLM
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -18,24 +23,21 @@ async def get_kakao_location_info(
     query: str,
 ) -> Tuple[Optional[float], Optional[float], Optional[str]]:
     """
-    Kakao 키워드 검색 API를 호출하여 주어진 쿼리(예: 관광지 이름 + 메인 지역)로부터
-    위도, 경도 및 보정된 주소(address_name)를 반환합니다.
-    만약 유효한 정보를 찾지 못하면 (None, None, None)을 반환합니다.
+    Calls the Kakao Keyword Search API with the given query and returns the latitude, longitude, and corrected address.
+    If valid information is not found, returns (None, None, None).
     """
     url = "https://dapi.kakao.com/v2/local/search/keyword.json"
     headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
     params = {"query": query}
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=headers, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            print(f"[Kakao Keyword API 응답] {data}")  # 디버깅 로그
+        async with aiohttp.ClientSession() as client:
+            async with client.get(url, headers=headers, params=params) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                logger.info(f"[Kakao Keyword API Response] {data}")
         documents = data.get("documents", [])
         if documents:
-            # 첫 번째 결과 사용
             result = documents[0]
-            # 도로명 주소가 있으면 우선 사용
             if result.get("road_address"):
                 address_name = result["road_address"].get("address_name")
                 x = float(result["road_address"].get("x", 0.0))
@@ -46,10 +48,11 @@ async def get_kakao_location_info(
                 y = float(result.get("y", 0.0))
             return y, x, address_name
     except Exception as e:
-        print(f"Kakao API 키워드 검색 에러: {e}")
+        logger.error(f"Kakao API Keyword Search Error: {e}")
     return None, None, None
 
 
+# Import tool classes from site_tool module
 from app.services.agents.tools.site_tool import (
     NaverTouristWebSearchTool,
     NaverTouristImageSearchTool,
@@ -57,19 +60,21 @@ from app.services.agents.tools.site_tool import (
 
 
 class TouristAgentService:
-    """관광지 추천을 위한 Agent 서비스 (CrewAI 활용)"""
+    """Tourist recommendation service using CrewAI agents"""
 
     _instance = None
+    _lock = threading.Lock()
 
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(TouristAgentService, cls).__new__(cls)
-            cls._instance.initialize()
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(TouristAgentService, cls).__new__(cls)
+                cls._instance.initialize()
         return cls._instance
 
     def initialize(self):
-        """서비스 초기화"""
-        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
+        """Initialize the service"""
+        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         self.web_search_tool = NaverTouristWebSearchTool()
         self.image_search_tool = NaverTouristImageSearchTool()
         self.agents = self._create_agents()
@@ -77,33 +82,55 @@ class TouristAgentService:
     def _process_input(
         self, input_data: dict, prompt: Optional[str] = None
     ) -> Tuple[dict, str]:
-        """입력 데이터 전처리"""
-        print(f"[입력 데이터] {input_data}")
-        print(f"[프롬프트] {prompt}")
+        logger.info(f"[Input Data] {input_data}")
+        logger.info(f"[Prompt] {prompt}")
+
+        if not input_data.get("main_location"):
+            raise HTTPException(
+                status_code=400, detail="main_location must be provided"
+            )
+
         if "concepts" not in input_data or not isinstance(input_data["concepts"], list):
             input_data["concepts"] = []
-        prompt_text = f"추가 요청: {prompt}\n" if prompt else ""
+
+        main_location_text = f"Location: {input_data.get('main_location')}. "
+
+        exclusion_text = ""
+        existing_spots = input_data.get("existing_spots", [])
+        if existing_spots:
+            existing_names = ", ".join(
+                [spot.get("kor_name", "") for spot in existing_spots]
+            )
+            exclusion_text = (
+                f"Previously recommended tourist spots: ({existing_names}). "
+                "Please strictly exclude these and recommend 5 new tourist spots. "
+            )
+
+        if prompt:
+            prompt_text = f"Additional instructions: {main_location_text}{exclusion_text}{prompt}\n"
+        else:
+            prompt_text = (
+                f"Additional instructions: {main_location_text}{exclusion_text}\n"
+            )
+
         return input_data, prompt_text
 
     def _create_agents(self) -> Dict[str, Agent]:
-        """Agent들을 생성하는 메서드"""
+        """Create agents with instructions in English."""
         return {
             "tourist_search": Agent(
-                role="관광지 추천 전문가",
-                goal="사용자에게 제공된 여행 정보를 바탕으로 관광지 추천을 진행한다.",
-                backstory="나는 최신 관광 정보를 알고 있는 전문가이다.",
+                role="Tourist Recommendation Expert",
+                goal="Recommend tourist spots based on the provided travel information.",
+                backstory="I have up-to-date knowledge about popular tourist destinations.",
                 tools=[self.web_search_tool],
                 llm=self.llm,
                 verbose=True,
                 async_execution=True,
             ),
             "image_update": Agent(
-                role="관광지 이미지 검색 전문가",
-                goal=(
-                    "추천된 관광지 리스트의 각 항목에 대해 'kor_name'을 사용하여 최신 이미지를 검색하고, "
-                    "각 항목의 image_url을 업데이트한다."
-                ),
-                backstory="나는 네이버 이미지 검색 API를 통해 관광지의 대표 이미지를 제공하는 전문가이다.",
+                role="Image Search Specialist",
+                goal="For each recommended tourist spot, use its 'kor_name' to fetch the latest image and update the 'image_url' field.",
+                backstory="I provide representative images for tourist spots using the Naver Image Search API.",
                 tools=[self.image_search_tool],
                 llm=self.llm,
                 verbose=True,
@@ -112,7 +139,6 @@ class TouristAgentService:
         }
 
     def _create_tasks(self, input_data: dict, prompt_text: str) -> List[Task]:
-        """Task들을 생성하는 메서드"""
         json_schema_prompt = (
             "{\n"
             '  "kor_name": string,\n'
@@ -129,29 +155,29 @@ class TouristAgentService:
             "}"
         )
         task1_description = (
-            f"'{input_data['main_location']}' 지역의 관광지 추천을 위해 아래 요구사항을 충족하는 관광지를 최소 10곳 추천하라.\n"
-            "요구사항:\n"
-            f"- 여행 기간: {input_data['start_date']}부터 {input_data['end_date']}까지\n"
-            f"- 연령대: {input_data['ages']}\n"
-            f"- 동반자 수: {input_data['companion_count']}\n"
-            f"- 여행 컨셉: {', '.join(input_data['concepts'])}\n"
+            f"Recommend at least 5 tourist spots in the area of '{input_data['main_location']}' that satisfy the following requirements:\n"
+            "Requirements:\n"
+            f"- Travel period: from {input_data['start_date']} to {input_data['end_date']}\n"
+            f"- Age group: {input_data['ages']}\n"
+            f"- Number of companions: {input_data['companion_count']}\n"
+            f"- Travel concepts: {', '.join(input_data['concepts'])}\n"
             f"{prompt_text}\n"
-            "각 관광지는 반드시 아래 JSON 객체 형식을 준수할 것:\n"
+            "Each tourist spot must strictly follow the following JSON object format:\n"
             f"{json_schema_prompt}\n"
-            "주의: 결과는 반드시 순수한 JSON 배열 형식(예: [ {...}, {...}, ... ])로 반환하고, 다른 텍스트는 포함하지 말라."
+            "Note: The result must be a pure JSON array (e.g., [ {{...}}, {{...}}, ... ]) without any extra text."
         )
         task1 = Task(
             description=task1_description,
             agent=self.agents["tourist_search"],
-            expected_output="관광지 추천 결과 (JSON 배열)",
+            expected_output="Tourist recommendation results (JSON array)",
         )
         task2 = Task(
             description=(
-                "추천된 관광지 리스트의 각 항목에 대해 'kor_name'을 사용하여 최신 이미지를 검색하고, "
-                "각 항목의 image_url 필드를 업데이트하라."
+                "For each recommended tourist spot, use its 'kor_name' to search for the latest image, "
+                "and update the 'image_url' field accordingly."
             ),
             agent=self.agents["image_update"],
-            expected_output="관광지 이미지 업데이트 결과 (JSON 배열)",
+            expected_output="Tourist image update results (JSON array)",
             output_pydantic=spots_pydantic,
         )
         return [task1, task2]
@@ -159,7 +185,9 @@ class TouristAgentService:
     async def create_tourist_plan(
         self, input_data: dict, prompt: Optional[str] = None
     ) -> dict:
-        """관광지 추천 워크플로우 실행"""
+        """
+        Execute the tourist recommendation workflow using the original English prompt.
+        """
         try:
             processed_input, prompt_text = self._process_input(input_data, prompt)
             tasks = self._create_tasks(processed_input, prompt_text)
@@ -167,14 +195,13 @@ class TouristAgentService:
             result = await crew.kickoff_async()
             return await self._process_result(result, processed_input)
         except Exception as e:
-            traceback.print_exc()
+            logger.exception("Error creating tourist plan")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def _process_result(self, result, input_data: dict) -> dict:
         """
-        결과 후처리: Crew의 마지막 태스크 결과를 pydantic 모델로 변환하고,
-        네이버 API의 부정확한 주소 대신, 관광지 이름과 메인 지역을 결합한 쿼리로
-        Kakao API의 키워드 검색을 통해 보정된 주소, 위도, 경도 정보를 조회하여 지도 URL을 업데이트한다.
+        Post-process the result: convert the final task result using the Pydantic model,
+        and update the map URL using Kakao API based on a combined query of the tourist spot name and main location.
         """
         try:
             if hasattr(result, "tasks_output") and result.tasks_output:
@@ -191,10 +218,21 @@ class TouristAgentService:
             else:
                 spots_data = {"spots": []}
         except Exception as e:
-            print("Error processing result:", e)
+            logger.error("Error processing result: %s", e)
             spots_data = {"spots": []}
 
-        # 여행 기간에 따른 총 일수 계산 (예: 1박 2일이면 총 2일)
+        # Deduplication logic
+        existing_spot_names = [
+            spot.get("kor_name", "") for spot in input_data.get("existing_spots", [])
+        ]
+        unique_spots = [
+            spot
+            for spot in spots_data.get("spots", [])
+            if spot.get("kor_name", "") not in existing_spot_names
+        ]
+        spots_data["spots"] = unique_spots
+
+        # Calculate total days from start_date to end_date
         try:
             start_date = datetime.strptime(input_data.get("start_date", ""), "%Y-%m-%d")
             end_date = datetime.strptime(input_data.get("end_date", ""), "%Y-%m-%d")
@@ -204,16 +242,22 @@ class TouristAgentService:
         except Exception:
             total_days = 1
 
-        for idx, spot in enumerate(spots_data.get("spots", [])):
-            # 관광지 이름과 메인 지역을 결합한 쿼리 생성
-            query = f"{spot.get('kor_name', '')} {input_data.get('main_location', '')}"
-            new_lat, new_lon, new_address = await get_kakao_location_info(query)
+        # Update each spot with Kakao map info and day_x in parallel using asyncio.gather
+        spots = spots_data.get("spots", [])
+        queries = [
+            f"{spot.get('kor_name', '')} {input_data.get('main_location', '')}"
+            for spot in spots
+        ]
+        kakao_results = await asyncio.gather(
+            *(get_kakao_location_info(query) for query in queries)
+        )
+        for idx, (spot, (new_lat, new_lon, new_address)) in enumerate(
+            zip(spots, kakao_results)
+        ):
             spot["latitude"] = new_lat
             spot["longitude"] = new_lon
-            # 보정된 주소가 있으면 업데이트, 없으면 원래 주소 유지
             if new_address:
                 spot["address"] = new_address
-            # 유효한 좌표가 있으면 Kakao 지도 링크 생성
             if (
                 new_lat is not None
                 and new_lon is not None
@@ -223,7 +267,6 @@ class TouristAgentService:
                 spot["map_url"] = (
                     f"https://map.kakao.com/link/map/{spot.get('kor_name', '')},{new_lat},{new_lon}"
                 )
-            # 동적 day_x 할당 (여행 기간 내에서 순환)c
             if not spot.get("day_x") or spot.get("day_x") == 0:
                 spot["day_x"] = (idx % total_days) + 1
 
@@ -245,7 +288,7 @@ class TouristAgentService:
             "updated_at": datetime.now().strftime("%Y-%m-%d"),
         }
         return {
-            "message": "관광지 추천이 성공적으로 처리되었습니다.",
+            "message": "Tourist recommendations processed successfully.",
             "plan": plan_info,
             "spots": spots_data.get("spots", []),
         }
