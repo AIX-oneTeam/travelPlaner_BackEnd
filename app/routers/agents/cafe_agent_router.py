@@ -1,20 +1,30 @@
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.routers.agents.travel_all_schedule_agent_router import TravelPlanRequest
-from datetime import datetime
+from app.repository.redis_client import get_redis  # Redis 연결 함수
+from app.repository.db import get_async_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from redis.asyncio import Redis
 router = APIRouter()
 
 cafe_service = CafeAgentService()
 
 @router.post("/cafe")
-async def get_cafes(user_input: TravelPlanRequest, prompt:Optional[str]):
+async def get_cafes(
+    user_input: TravelPlanRequest,
+    prompt:Optional[str],
+    redis_client: Redis = Depends(get_redis)
+    ):
     """
     카페 정보를 가져오는 엔드포인트.
     - CrewAI 실행 후 일정(JSON) 반환.
     """
     try:
-        result = await cafe_service.create_recommendation(user_input.model_dump(),prompt=prompt)     
+        result = await cafe_service.create_recommendation(user_input.model_dump(),
+                                                          prompt = prompt,
+                                                          redis_client= redis_client,
+                                                        )     
         if not result:
             print("카페 결과값이 없습니다. ")
 
