@@ -24,7 +24,7 @@ def notify_message_to_one(token: str, title: str, body: str):
         fcm_token=token,
         notification_title=title,
         notification_body=body,
-        notification_image="https://easyTravel.jomalang.com/icons/Easy_Travel.png",
+        notification_image="https://easyTravel.jomalang.com/icons/complete.png",
     )
     return result
 

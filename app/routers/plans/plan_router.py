@@ -85,7 +85,6 @@ async def read_member_plans(request: Request, session: AsyncSession = Depends(ge
             provider = request.state.user.get("provider")
             member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
             logger.info("💡[ plan_router ] member_id : ", member_id)
-            
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         plans = await find_member_plans(member_id, session)
