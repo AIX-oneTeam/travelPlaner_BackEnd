@@ -11,7 +11,8 @@ class RestaurantRedisService:
     """Redis를 활용한 식당 추천 관리 서비스"""
 
     KEY_PREFIX = "recommended_restaurants:"
-    EXPIRATION_HOURS = 1  # 1시간 후 자동 삭제
+    # EXPIRATION_HOURS = 1  # 1시간 후 자동 삭제
+    EXPIRATION_HOURS = 5 / 60
 
     def __init__(self, redis: Redis):
         """
@@ -38,9 +39,18 @@ class RestaurantRedisService:
     ) -> None:
         """추천된 식당 목록을 Redis에 저장"""
         try:
+            print(f"🔍 Received restaurants data: {restaurants}")  # 추가
+            print(f"🔍 main_location: {main_location}")  # 추가
+            print(f"🔍 member_id: {member_id}")  # 추가
+
             # 의존성 주입된 Redis 인스턴스를 사용합니다.
             redis_client: Redis = self.redis
             key = self._generate_key(member_id, main_location)
+
+            ###### Redis 연결 테스트
+            await redis_client.ping()  # 추가
+            print("🔍 Redis connection successful")  # 추가
+
             # spots 배열에서 식당 이름만 추출
             restaurant_names = restaurants
 
@@ -59,9 +69,7 @@ class RestaurantRedisService:
             logger.info(
                 f"🟣 Redis에 저장된 식당 수: {len(restaurant_names)}, Key: {key}"
             )
-            print(f"🟣 Redis에 저장된 식당: {restaurant_names}")
             logger.info(f"🟣 Redis에 저장된 식당: {restaurant_names}")
-            print(f"🟣 Redis에 저장된 식당 수: {len(restaurant_names)}, Key: {key}")
         except Exception as e:
             logger.error(f"🟣 Redis 저장 중 오류 발생 - Key: {key}, Error: {e}")
             raise
@@ -79,7 +87,6 @@ class RestaurantRedisService:
             logger.info(
                 f"🟣 Redis에서 조회된 제외 식당 수: {len(excluded_restaurants)}, Key: {key}"
             )
-            print(f"🟣 Redis에서 조회된 제외 식당: {excluded_restaurants}")
             return excluded_restaurants
         except Exception as e:
             logger.error(f"🟣 Redis 조회 중 오류 발생 - Key: {key}, Error: {e}")
@@ -95,7 +102,6 @@ class RestaurantRedisService:
 
             await redis_client.delete(key)
             logger.info(f"🟣 Redis 데이터 삭제 완료 - Key: {key}")
-            print(f"🟣 Redis 데이터 삭제 완료 - Key: {key}")
         except Exception as e:
             logger.error(f"🟣 Redis 데이터 삭제 중 오류 발생 - Key: {key}, Error: {e}")
             raise
