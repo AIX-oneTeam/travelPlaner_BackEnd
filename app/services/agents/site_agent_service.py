@@ -10,7 +10,7 @@ from crewai import Agent, Task, Crew, LLM
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
-
+from app.utils.time_check import time_check
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,7 @@ class TouristAgentService:
         )
         return [task1, task2]
 
+    @time_check
     async def create_tourist_plan(
         self, input_data: dict, prompt: Optional[str] = None
     ) -> dict:
