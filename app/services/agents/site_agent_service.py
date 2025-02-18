@@ -9,6 +9,8 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 
+from app.utils.time_check import time_check
+
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 KAKAO_API_KEY = os.getenv("KAKAO_API_KEY")
@@ -156,6 +158,7 @@ class TouristAgentService:
         )
         return [task1, task2]
 
+    @time_check
     async def create_tourist_plan(
         self, input_data: dict, prompt: Optional[str] = None
     ) -> dict:

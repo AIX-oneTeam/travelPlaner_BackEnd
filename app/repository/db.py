@@ -12,6 +12,7 @@ from .redis_client import init_redis, close_redis
 # 환경 변수 로드
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
 
     # Redis 초기화
     await init_redis(app)
+    logger.info("Redis 연결 완료")
     
     try:
         yield

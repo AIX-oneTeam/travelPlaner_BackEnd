@@ -24,9 +24,9 @@ async def get_restaurants(
             input_data["prompt"] = prompt
 
         try:
-            result = await restaurant_service.create_recommendation(input_data, prompt)
+            result = await restaurant_service.create_recommendation_restaurant(input_data, prompt)
         except Exception as e:
-            print(f"[ERROR] create_recommendation() 오류 발생: {e}")
+            print(f"[ERROR] create_recommendation_restaurant() 오류 발생: {e}")
             raise HTTPException(status_code=500, detail="추천 생성 중 오류 발생")
 
         print("restaurant_response:", result)
