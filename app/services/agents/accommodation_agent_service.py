@@ -284,7 +284,7 @@ class AccommodationAgentService:
             # ),                                 
         ]
 
-    async def create_recommendation(self, user_input: dict):
+    async def create_recommendation_accommodation(self, user_input: dict):
         """
         CrewAI를 실행하여 사용자 맞춤 숙소를 추천하는 서비스
         """
