@@ -1,12 +1,13 @@
 import asyncio
 import aiohttp
 import httpx
-import datetime
 import os
 import re
 from crewai.tools import BaseTool
-from typing import List, Dict
+from typing import List, Dict, Union
 from dotenv import load_dotenv
+import logging
+logger = logging.getLogger(__name__)
 
 
 # 환경 변수 로드
@@ -60,7 +61,7 @@ async def check_url_openable_async(url: str) -> bool:
             else:
                 return False
     except Exception as e:
-        print(f"Error checking URL '{url}': {e}")
+        logger.error(f"Error checking URL '{url}': {e}")
         return False
 
 # 1. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
@@ -118,15 +119,20 @@ class RestaurantBasicSearchTool(BaseTool):
                     "reviews": result.get("user_ratings_total", 0),
                 }
         except Exception as e:
-            print(f"[RestaurantBasicSearchTool] Details Error: {e}")
+            logger.error(f"[RestaurantBasicSearchTool] Details Error: {e}")
             return None
 
-    async def _arun(self, coordinates: str, search_keywords: List[str]) -> List[Dict]:
+    async def _arun(
+        self,
+        coordinates: str,
+        search_keywords: List[str],
+        existing_spot_names: List[str] = None,
+    ) -> List[Dict]:
         url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
         all_candidates = []
         lat, lng = coordinates.split(",")
 
-        print(f"[keyword]: {search_keywords}")
+        logger.info(f"[keyword]: {search_keywords}")
 
         # 각 검색 키워드별로 검색 수행
         for keyword in search_keywords:
@@ -148,7 +154,7 @@ class RestaurantBasicSearchTool(BaseTool):
                     async with session.get(url, params=params) as response:
                         data = await response.json()
                         results = data.get("results", [])
-                        print(
+                        logger.info(
                             f"첫 요청 결과 수: {len(results)} (필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상)"
                         )
 
@@ -175,7 +181,7 @@ class RestaurantBasicSearchTool(BaseTool):
                                 async with session.get(url, params=params) as response:
                                     data = await response.json()
                                     new_results = data.get("results", [])
-                                    print(f"추가 요청 결과 수: {len(new_results)}")
+                                    logger.info(f"추가 요청 결과 수: {len(new_results)}")
 
                                     for place in new_results:
                                         if len(candidates) >= 40:
@@ -194,7 +200,7 @@ class RestaurantBasicSearchTool(BaseTool):
 
                                     next_page_token = data.get("next_page_token")
                             except Exception as e:
-                                print(f"추가 페이지 요청 오류: {e}")
+                                logger.error(f"추가 페이지 요청 오류: {e}")
                                 break
                 return candidates
 
@@ -204,7 +210,7 @@ class RestaurantBasicSearchTool(BaseTool):
 
                 # 결과가 15개 미만이면 중소도시 기준으로 추가 검색
                 if len(keyword_candidates) < 15:
-                    print(
+                    logger.info(
                         "결과가 15개 미만 → 필터링 조건 완화 (평점 3.5 이상, 리뷰 200개 이상)로 추가 검색"
                     )
                     additional_candidates = await fetch_places(3.5, 200)
@@ -219,7 +225,7 @@ class RestaurantBasicSearchTool(BaseTool):
 
                     # 여전히 15개 미만이면 외곽/지방 기준으로 추가 검색
                     if len(keyword_candidates) < 15:
-                        print(
+                        logger.info(
                             "결과가 여전히 15개 미만 → 필터링 조건 추가 완화 (평점 3.3 이상, 리뷰 100개 이상)로 추가 검색"
                         )
                         additional_candidates = await fetch_places(3.3, 100)
@@ -232,12 +238,12 @@ class RestaurantBasicSearchTool(BaseTool):
                         )
 
                 all_candidates.extend(keyword_candidates)
-                print(
+                logger.info(
                     f"키워드 '{keyword}'에 대한 검색 결과 수: {len(keyword_candidates)}"
                 )
 
             except Exception as e:
-                print(
+                logger.error(
                     f"[RestaurantBasicSearchTool] Search Error for keyword '{keyword}': {e}"
                 )
 
@@ -245,11 +251,30 @@ class RestaurantBasicSearchTool(BaseTool):
         unique_candidates = list(
             {candidate["title"]: candidate for candidate in all_candidates}.values()
         )
-        print(f"최종 수집된 맛집 수 (중복 제거 후): {len(unique_candidates)}")
+
+        # 기존 장소와 중복 제거
+        if existing_spot_names:
+            logger.info(f"기존 장소와 중복 제거 전 개수: {len(unique_candidates)}")
+            filtered_candidates = [
+                candidate
+                for candidate in unique_candidates
+                if candidate["title"] not in existing_spot_names
+            ]
+            logger.info(f"기존 장소와 중복 제거 후 개수: {len(filtered_candidates)}")
+            return filtered_candidates
+
+        logger.info(f"최종 수집된 맛집 수 (중복 제거 후): {len(unique_candidates)}")
         return unique_candidates
 
-    def _run(self, coordinates: str, search_keywords: List[str]) -> List[Dict]:
-        return asyncio.run(self._arun(coordinates, search_keywords))
+    def _run(
+        self,
+        coordinates: str,
+        search_keywords: List[str],
+        existing_spot_names: List[str] = None,
+    ) -> List[Dict]:
+        return asyncio.run(
+            self._arun(coordinates, search_keywords, existing_spot_names)
+        )
 
 
 # 3. 네이버 웹 검색 API를 사용해 식당의 세부 정보를 조회하는 Tool
@@ -268,7 +293,7 @@ class NaverWebSearchTool(BaseTool):
 
         # 입력 문자열을 clean_query 함수를 통해 정리합니다.
         query = clean_query(query)
-        print(f"[네이버 세부정부 검색어]: {query}")
+        logger.info(f"[네이버 세부정보 검색어]: {query}")
 
         params = {
             "query": query,
@@ -297,7 +322,7 @@ class NaverWebSearchTool(BaseTool):
                     "url": items[0].get("link", "") if items else "",
                 }
         except Exception as e:
-            print(f"네이버 웹 검색 오류: {str(e)}")
+            logger.error(f"네이버 웹 검색 오류: {str(e)}")
             return {"description": "정보 없음", "url": ""}
 
     async def _arun(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
@@ -328,7 +353,7 @@ class NaverImageSearchTool(BaseTool):
         }
 
         query = clean_query(query)
-        print(f"[네이버 이미지 검색어]: {query}")
+        logger.info(f"[네이버 이미지 검색어]: {query}")
 
         params = {
             "query": query,
@@ -352,17 +377,43 @@ class NaverImageSearchTool(BaseTool):
                 # 만약 모두 접근 불가능하다면, 기본 이미지 URL 반환
                 return "https://via.placeholder.com/300x200?text=No+Image"
         except Exception as e:
-            print(f"네이버 이미지 검색 오류: {str(e)}")
+            logger.error(f"네이버 이미지 검색 오류: {str(e)}")
             return "https://via.placeholder.com/300x200?text=Error"
 
-    async def _arun(self, restaurant_list: List[str]) -> Dict[str, str]:
+    async def _arun(
+        self, restaurant_list: Union[List[str], List[Dict], Dict]
+    ) -> Dict[str, str]:
+        # 딕셔너리 리스트인 경우 처리
+        if (
+            isinstance(restaurant_list, list)
+            and restaurant_list
+            and isinstance(restaurant_list[0], dict)
+        ):
+            restaurants = [
+                r.get("kor_name", "") for r in restaurant_list if r.get("kor_name")
+            ]
+        # 기존 로직 유지
+        elif isinstance(restaurant_list, dict):
+            if "type" in restaurant_list:
+                restaurants = restaurant_list["type"]
+            else:
+                restaurants = []
+        else:
+            restaurants = (
+                restaurant_list
+                if isinstance(restaurant_list, list)
+                else [restaurant_list]
+            )
+
+        restaurants = [str(r) for r in restaurants if r is not None]
+
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurant_list:
+            for restaurant in restaurants:
                 results[restaurant] = await self.fetch(session, restaurant)
         return results
 
-    def _run(self, restaurant_list: List[str]) -> Dict[str, str]:
+    def _run(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
         return asyncio.run(self._arun(restaurant_list))
 
 
@@ -392,7 +443,7 @@ class KakaoLocalSearchTool(BaseTool):
         ]
 
         for query in search_queries:
-            print(f"[카카오 로컬 검색어 시도]: {query}")
+            logger.info(f"[카카오 로컬 검색어 시도]: {query}")
             params = {
                 "query": query,
                 "category_group_code": "FD6",
@@ -422,16 +473,18 @@ class KakaoLocalSearchTool(BaseTool):
                             "phone_number": place.get("phone", ""),
                             # "category_name": place.get("category_name", ""),
                         }
-                        print(
+                        logger.info(
                             f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
                         )
                         return result
 
             except Exception as e:
-                print(f"카카오 로컬 검색 오류: {str(e)}")
+                logger.error(f"카카오 로컬 검색 오류: {str(e)}")
                 continue
 
-        print(f"[카카오 로컬 검색 실패] 모든 검색어 시도 실패: {search_queries}")
+        logger.warning(
+            f"[카카오 로컬 검색 실패] 모든 검색어 시도 실패: {search_queries}"
+        )
         return self._get_empty_result(name)
 
     def _get_empty_result(self, name: str) -> dict:

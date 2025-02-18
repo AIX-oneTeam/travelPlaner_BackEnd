@@ -7,6 +7,10 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
+from app.repository.agents.agent_plan_spots_repository import get_member_plan_spots
+from app.repository.agents.agent_plan_spots_repository import get_latest_plan
+from app.repository.members.mebmer_repository import get_memberId_by_email
+from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.agents.tools.restaurant_tool import (
     GeocodingTool,
     RestaurantBasicSearchTool,
@@ -14,7 +18,11 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
+from app.services.agents.restaurant_redis import RestaurantRedisService
+from redis.asyncio import Redis
 from app.utils.time_check import time_check
+import logging
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -34,7 +42,6 @@ class RestaurantAgentService:
 
     def initialize(self):
         """서비스 초기화"""
-        # print("RestaurantAgentService 초기화 중...")
         self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
@@ -48,8 +55,8 @@ class RestaurantAgentService:
         self, input_data: dict, prompt: Optional[str] = None
     ) -> tuple[dict, str]:
         """입력 데이터 전처리"""
-        print(f"[입력 데이터] input_data: {input_data}")
-        print(f"[프롬프트 입력] prompt: {prompt}")
+        logger.info(f"[입력 데이터] input_data: {input_data}")
+        logger.info(f"[프롬프트 입력] prompt: {prompt}")
 
         if prompt:
             # prompt가 있으면 concepts 무시
@@ -72,7 +79,7 @@ class RestaurantAgentService:
             ]
             if not filtered_concepts:
                 filtered_concepts = ["맛집"]
-            print(f"[컨셉 필터링] filtered_concepts: {filtered_concepts}")
+            logger.info(f"[컨셉 필터링] filtered_concepts: {filtered_concepts}")
             input_data["concepts"] = filtered_concepts
             prompt_text = f"맛집을 다음 컨셉에 맞춰서 추천해주세요: {', '.join(filtered_concepts)}"
 
@@ -159,7 +166,7 @@ class RestaurantAgentService:
                 여행 기간: {input_data['start_date']} ~ {input_data['end_date']}
                 연령대: {input_data['ages']}
                 동반자: {', '.join([f"{c['label']} {c['count']}명" for c in input_data['companion_count']])}
-                요청사항: {prompt_text}
+                {prompt_text}
 
                 # 규칙
                 1. 정확히 3개의 검색 키워드를 생성할 것
@@ -175,7 +182,7 @@ class RestaurantAgentService:
                 expected_output="좌표와 3개의 맛집 검색 키워드",
             ),
             Task(
-                description="맛집 기본 정보 조회",
+                description=f"""기존에 추천되었던 {input_data.get('existing_spot_names', [])} 식당들은 제외하고 정보 조회해주세요.""",
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
             ),
@@ -191,7 +198,7 @@ class RestaurantAgentService:
                 {{
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
-                    "description": "string (가게 설명, 최소 150자 이상 230자 이하)",
+                    "description": "string (가게 설명, 최소 150자 이상 200자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
                     "business_hours": "string 또는 null (영업 시간 정보)"
                     "url": "string 또는 null (가게 URL, 공식 정보 우선)",
@@ -237,7 +244,7 @@ class RestaurantAgentService:
                 {{
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
-                    "description": "string (가게 설명, 최소 150자 이상 255자 이하)",
+                    "description": "string (가게 설명, 최소 150자 이상 200자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
                     "business_hours": "string 또는 null (영업 시간 정보)"
                     "url": "string 또는 null (가게 URL, 공식 정보 우선)",
@@ -349,15 +356,90 @@ class RestaurantAgentService:
             },
             "spots": spots_data.get("spots", []),
         }
-
+    
     @time_check
     async def create_recommendation_restaurant(
-        self, input_data: dict, prompt: Optional[str] = None
+        self,
+        input_data: dict,
+        prompt: Optional[str] = None,
+        session: AsyncSession = None,
+        redis: Redis = None,
     ) -> dict:
-        """추천 워크플로우를 실행하는 메서드"""
         try:
+            existing_spot_names = []
+            member_id = None
+
+            # 공통: member_id 조회 (email로 조회)
+            if input_data.get("email") and session:
+                member_id = await get_memberId_by_email(input_data["email"], session)
+                logger.info(f"🟡 [조회된 member_id]: {member_id}")
+                print(f"🟡 [조회된 member_id]: {member_id}")
+                try:
+                    # plan_id 유무에 따라 다른 로직 적용
+                    if input_data.get("plan_id"):
+                        # 기존 일정 수정의 경우 - DB 로직 사용
+                        current_plan_id = input_data.get("plan_id")
+
+                        # 현재 plan이 해당 member의 것인지 확인
+                        plan_spots_with_spot_info = await get_member_plan_spots(
+                            current_plan_id, member_id, session
+                        )
+
+                        if not plan_spots_with_spot_info:
+                            latest_plan = await get_latest_plan(member_id, session)
+                            if latest_plan:
+                                plan_spots_with_spot_info = await get_member_plan_spots(
+                                    latest_plan.id, member_id, session
+                                )
+                                logger.info(f"🟡 [최신 plan_id 사용]: {latest_plan.id}")
+                        else:
+                            logger.info(f"🟡 [전달받은 plan_id 사용]: {current_plan_id}")
+
+                        if (
+                            plan_spots_with_spot_info
+                            and "detail" in plan_spots_with_spot_info
+                        ):
+                            existing_spot_names = [
+                                item["spot"].kor_name
+                                for item in plan_spots_with_spot_info["detail"]
+                            ]
+                            logger.info(
+                                f"🟡 [DB에서 가져온 기존 장소들]: {existing_spot_names}"
+                            )
+
+                    else:
+                        # 새로 생성된 일정 수정의 경우 - Redis 사용
+                        print("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
+                        logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
+                        try:
+                            # 의존성 주입된 redis 인스턴스를 사용하여 서비스 생성
+                            redis_service = RestaurantRedisService(redis)
+                            redis_excluded_spots = (
+                                await redis_service.get_excluded_restaurants(
+                                    main_location=input_data["main_location"],
+                                    member_id=member_id,
+                                )
+                            )
+                            logger.info(
+                                f"디버그 - redis_excluded_spots: {redis_excluded_spots}"
+                            )
+                            if redis_excluded_spots:
+                                existing_spot_names = redis_excluded_spots
+                                logger.info(
+                                    f"🟢 [Redis에서 가져온 제외 식당 목록]: {redis_excluded_spots}"
+                                )
+                        except Exception as e:
+                            logger.error(f"Redis 조회 중 오류 발생: {e}")
+                            # Redis 오류 시 빈 리스트로 계속 진행
+
+                except Exception as e:
+                    logger.error(f"🟢 장소 조회 중 오류 발생: {e}")
+                    traceback.print_exc()
+
             # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
+            processed_input["existing_spot_names"] = existing_spot_names
+            processed_input["member_id"] = member_id
 
             # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text)
@@ -370,9 +452,26 @@ class RestaurantAgentService:
                 memory=True,
             )
 
-            # 4. 결과 처리
+            # 4. 결과 실행 및 처리
             result = await crew.kickoff_async()
-            return self._process_result(result, processed_input)
+            processed_result = self._process_result(result, processed_input)
+
+            # 5. plan_id가 없는 경우에만 Redis에 저장
+            if not input_data.get("plan_id") and member_id:
+                try:
+                    # 의존성 주입된 redis 인스턴스를 사용하여 서비스 생성
+                    redis_service = RestaurantRedisService(redis)
+                    restaurants_to_save = [spot["kor_name"] for spot in processed_result.get("spots", [])]
+                    await redis_service.add_recommended_restaurants(
+                        restaurants=restaurants_to_save,
+                        main_location=input_data["main_location"],
+                        member_id=member_id,
+                    )
+                except Exception as e:
+                    logger.error(f"Redis 저장 중 오류 발생: {e}")
+                    # Redis 저장 실패는 전체 프로세스에 영향을 주지 않도록 함
+
+            return processed_result
 
         except Exception as e:
             traceback.print_exc()

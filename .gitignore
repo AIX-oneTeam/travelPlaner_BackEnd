@@ -172,3 +172,5 @@ cython_debug/
 
 # fcm json file
 FCM_ADMIN.json
+
+messaging/*.json
