@@ -7,8 +7,10 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
-from app.repository.agents.agent_plan_spots_repository import get_member_plan_spots
-from app.repository.agents.agent_plan_spots_repository import get_latest_plan
+from app.repository.agents.restaurant_plan_spots_repository import (
+    get_member_plan_spots,
+    get_latest_plan,
+)
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.agents.tools.restaurant_tool import (
@@ -18,10 +20,11 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
-from app.services.agents.restaurant_redis import RestaurantRedisService
+from app.services.agents.redis.restaurant_redis import RestaurantRedisService
 from redis.asyncio import Redis
 from app.utils.time_check import time_check
 import logging
+
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -356,7 +359,8 @@ class RestaurantAgentService:
             },
             "spots": spots_data.get("spots", []),
         }
-    
+
+
     @time_check
     async def create_recommendation_restaurant(
         self,
