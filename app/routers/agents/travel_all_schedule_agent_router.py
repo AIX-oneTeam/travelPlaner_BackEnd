@@ -17,7 +17,7 @@ from app.services.agents.travel_all_schedule_agent_service import (
 from app.services.agents.site_agent_service import TouristAgentService
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
-from app.services.agents.accommodation_agent_service2 import AccommodationAgentService
+from app.services.agents.accommodation_agent_service import AccommodationAgentService
 from app.services.members.member_service import get_member_id_by_request
 from app.services.messaging.messaging_service import send_push_message
 from sqlmodel.ext.asyncio.session import AsyncSession
