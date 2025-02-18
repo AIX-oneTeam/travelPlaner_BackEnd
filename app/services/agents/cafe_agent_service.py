@@ -17,29 +17,40 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def save_cafe_info(cafe_data_list:CafeList, redis_client:Redis):
+async def save_cafe_info(cafe_data_list: dict, redis_client:Redis):
     try:
-        for cafe_data in cafe_data_list:
+        # 개별 카페 데이터 저장
+        for cafe_data in cafe_data_list.get("spots", []):
             cafe_id = cafe_data["placeId"]
-            redis_client.set(f"cafe:{cafe_id}", json.dumps(cafe_data))
+            await redis_client.set(f"cafe:{cafe_id}", json.dumps(cafe_data))
+            
             tags = [cafe_data["main_location"]] + cafe_data["keywords"]
             for tag in tags:
-                redis_client.sadd(f"tag:{tag}", cafe_id)
+                await redis_client.sadd(f"tag:{tag}", cafe_id)
         return "[CafeAgentService] : 성공적으로 저장되었습니다."
+
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {error_details}")
-        return f"[CafeAgentService] - save_cafe_info :저장 중 오류 발생: {str(e)}"
+        return f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {str(e)}"
+            
+async def get_cafes_by_tag(tag: str, redis_client: Redis):
+    """
+    특정 태그(지역 또는 키워드)에 해당하는 모든 카페 조회
+    """
+    cafe_ids = await redis_client.smembers(f"tag:{tag}")  # 태그에 해당하는 placeId 리스트 가져오기
 
-    
-async def search_cafes(main_location:str, redis_client:Redis):
-    """ 특정 지역의 모든 카페 조회 """
-    # 해당 지역의 카페 ID들 조회
-    cafe_ids = await redis_client.smembers(f"tag:{main_location}")
-    
-    # 카페 상세 정보 조회
-    results = [json.loads(await redis_client.get(f"cafe:{cafe_id}")) for cafe_id in cafe_ids]
-    return results
+    if not cafe_ids:
+        print(f"[CafeAgentService] - 태그 '{tag}'에 해당하는 카페를 찾을 수 없습니다.")
+        return None
+    cafes = []
+    for cafe_id in cafe_ids:
+        cafe_data = await redis_client.get(f"cafe:{cafe_id}")
+        if cafe_data:
+            cafes.append(json.loads(cafe_data))
+
+    return cafes
+            
             
 class CafeAgentService:
     """
@@ -67,8 +78,8 @@ class CafeAgentService:
         
         self.tasks["researcher_task"].context = [self.tasks["collector_task"]]
         self.tasks["reviewer_task"].context = [self.tasks["researcher_task"]]
-        self.tasks["Decider_task"].context = [self.tasks["reviewer_task"]]
-        self.draft_crew = Crew(agents=[self.agents['collector']], tasks=[self.tasks['collector_task']], verbose=True)  
+        self.tasks["decider_task"].context = [self.tasks["reviewer_task"]]
+        self.draft_crew = Crew(agents=[self.agents['decider']], tasks=[self.tasks['decider_task']], verbose=True)  
         self.crew = Crew(agents=list(self.agents.values()), tasks=list(self.tasks.values()),process=Process.sequential, verbose=True)  
 
     def _create_agents(self) -> Dict[str, Agent]:
@@ -131,7 +142,7 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. tool 사용시 "{main_location}"과 "keywords"를 순서대로 입력하세요.
-                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts}을 반영한 키워드 리스트
+                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트
                 2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요.
                 3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
                 4. 포스팅 횟수가 동일한 카페들은 "비추' 등의 부정적인 의견이 적은 포스팅부터 먼저 나열해주세요. 
@@ -179,11 +190,11 @@ class CafeAgentService:
                 """,
                 expected_output="""
                 중복되지 않는 카페 리스트를 반환해주세요.
+                main_location: {main_location}
                 """,        
                 agent=self.agents["reviewer"],
-                output_json=CafeList,
-                context=[],
-                callback=save_cafe_info
+                output_pydantic=CafeList,
+                context=[]
             ),
             "decider_task" : Task(
                 description="""
@@ -227,12 +238,17 @@ class CafeAgentService:
             raise ValueError("[CafeAgent] 에러 - Redis 연결을 확인해주세요")
   
         try:
-            cached_cafe_lists = await search_cafes(input_data["main_location"], redis_client)
+            cached_cafe_lists = await get_cafes_by_tag(input_data["main_location"], redis_client) or []
             print(f"cached_cafe_lists: {cached_cafe_lists}")
+            input_data["cached_cafe_lists"] = cached_cafe_lists
+            
             if len(cached_cafe_lists) < (input_data["n"])*2:
                 try:
                     result = await self.crew.kickoff_async(inputs=input_data)
-                    save_cafe_info()
+                    reviewer_result = self.tasks['reviewer_task'].output.pydantic.model_dump()
+                    print(f"result_task3_output_raw:{reviewer_result}")
+                    await save_cafe_info(reviewer_result,redis_client)
+                    print(f"result : {result}")
                     return result.pydantic.model_dump()
                 except Exception as e:
                     print(f"[CafeAgent] 에러: {e}")
@@ -240,10 +256,9 @@ class CafeAgentService:
                     print(f"[CafeAgent] 상세 에러: {error_details}")
                     raise e  # 또는 적절한 에러 메시지를 담아 반환                   
             else:
-                input_data["cached_cafe_lists"] = cached_cafe_lists
                 try:
                     result = await self.draft_crew.kickoff_async(inputs=input_data)
-                    print(f"result:{result}")
+                    print(f"result-draft-crew:{result}")
                     return result.pydantic.model_dump()
                 except Exception as e:
                     print(f"[CafeAgent] 에러: {e}")
@@ -252,19 +267,7 @@ class CafeAgentService:
                     raise e  # 또는 적절한 에러 메시지를 담아 반환   
                 
         except Exception as e:
-            print(f"[CafeAgent] 에러 - redis에서 정보 불러오기 실패: {e}")    
-        
-        if cached_cafe_lists:
-            return None
-        try:
-            result = await self.crew.kickoff_async(inputs=input_data)
-            print(f"result:{result}")
-            return result.pydantic.model_dump()
-        except Exception as e:
-            print(f"[CafeAgent] 에러: {e}")
-            error_details = traceback.format_exc()
-            print(f"[CafeAgent] 상세 에러: {error_details}")
-            raise e  # 또는 적절한 에러 메시지를 담아 반환               
+            print(f"[CafeAgent] 에러 - {e}")                
                 
 # {
 #   "ages": "20대",
