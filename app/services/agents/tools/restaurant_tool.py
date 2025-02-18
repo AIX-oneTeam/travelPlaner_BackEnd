@@ -132,7 +132,7 @@ class RestaurantBasicSearchTool(BaseTool):
         all_candidates = []
         lat, lng = coordinates.split(",")
 
-        # logger.info(f"[keyword]: {search_keywords}")
+        logger.info(f"[keyword]: {search_keywords}")
 
         # 각 검색 키워드별로 검색 수행
         for keyword in search_keywords:
