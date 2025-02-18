@@ -3,7 +3,7 @@ import httpx
 import asyncio
 from dotenv import load_dotenv
 from crewai.tools import BaseTool
-from typing import List
+from typing import List, Dict, Optional
 import os
 from bs4 import BeautifulSoup
 import json
@@ -157,7 +157,7 @@ class NaverBlogSearchTool(BaseTool):
     
 class NaverBlogCralwerTool(BaseTool):
     name: str = "NaverBlogCralwer"
-    description: str = "네이버 블로그를 크롤링해 카페 정보 추출"
+    description: str = "개별 블로그 url에서 카페 정보 추출"
     
     async def _fetch_blog_data(self, client: httpx.AsyncClient, url: str) -> str:
         url = url.replace('https://blog.naver.com', 'https://m.blog.naver.com')
@@ -210,33 +210,44 @@ class NaverBlogCralwerTool(BaseTool):
         except Exception as e:
             return f"[cafe_tool:NaverBlogCralwer] 에러: {str(e)}"
 
-    async def _arun(self, urls: List[str]) -> str:
-        _unique_places = {}
+    async def process_cafe(self, client: httpx.AsyncClient, cafe_name:str, urls: List[str]) -> Optional[dict]:
+        """
+        해당 카페의 URL 리스트를 순차적으로 시도하여, 첫 번째 유효한 결과를 반환.
+        """
+        for idx, url in enumerate(urls):
+                result = await self._fetch_blog_data(client, url)
+                if isinstance(result, dict) and result.get("placeId"):
+                    # 유효한 결과를 얻으면 바로 반환 (나머지 URL은 크롤링하지 않음)
+                    # print(f"{cafe_name} - {idx}번만에 크롤링 성공")
+                    return result
+        return None
+
+
+    async def _arun(self, cafe_urls: Dict[str, List[str]]) -> str:
         semaphore = asyncio.Semaphore(5)
         
-        async def bounded_fetch(url, client):
+        async def bounded_fetch(client, cafe_name, urls):
             async with semaphore:
-                return await self._fetch_blog_data(url, client)
+                return await self.process_cafe(client, cafe_name, urls)
         
         async with httpx.AsyncClient() as client:
-            tasks = [bounded_fetch(client, url) for url in urls if url]
+            tasks = [bounded_fetch(client, cafe_name, urls)   for cafe_name, urls in cafe_urls.items()]
             results = await asyncio.gather(*tasks)
             
-            # 중복 제거는 여기서 한 번에 처리
-            for result in results:
-                if isinstance(result, dict) and "error" not in result and result.get("placeId"):
-                    placeId = result["placeId"].strip()  # 앞뒤 공백 제거
-                    if placeId not in _unique_places:  # 이미 있는 placeId가 아니라면 추가
-                        _unique_places[placeId] = result
-                        
-            return json.dumps(list(_unique_places.values()), indent=4, ensure_ascii=False)
-        
-    def _run(self, urls: List[str]) -> str:
-        return asyncio.run(self._arun(urls))
+            # 유효한 결과만 모아서 반환
+            valid_results = [result for result in results if result is not None]
+            return json.dumps(valid_results, indent=4, ensure_ascii=False)
     
-# url_lists = ["https://blog.naver.com/dannykgu/223574084699","https://blog.naver.com/jmy9927/223514138939","https://blog.naver.com/eodwk44/223675080896"]
+    def _run(self, cafe_urls: Dict[str, List[str]]) -> str:
+        return asyncio.run(self._arun(cafe_urls))
+
+# cafe_blogs = {
+#         "얼스어스": ["https://blog.naver.com/scr02070/223121950899", "https://blog.naver.com/ajy951230/223093046319", "https://blog.naver.com/congsuni04/223236886369"],
+#         "반고커피": ["https://blog.naver.com/ordinary_chae/223683617720", "https://blog.naver.com/comiyoun/223611761198"],
+# }    
+# # url_lists = ["https://blog.naver.com/dannykgu/223574084699","https://blog.naver.com/jmy9927/223514138939","https://blog.naver.com/eodwk44/223675080896"]
 # blog_tool = NaverBlogCralwerTool()
-# result = await blog_tool._arun(url_lists)
+# result = await blog_tool._arun(cafe_blogs)
 # print(result)
     
 class NaverReviewCralwerTool(BaseTool):
