@@ -1,17 +1,29 @@
-from fastapi import APIRouter, HTTPException, Query
+import logging
+import os
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import asyncio
 
 # 서비스 클래스 임포트
+from app.repository.db import get_async_session
+from app.repository.fcmToken.fcm_token_respository import get_fcm_token
 from app.services.agents.travel_all_schedule_agent_service import (
     TravelScheduleAgentService,
 )
 from app.services.agents.site_agent_service import TouristAgentService
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
-from app.services.agents.accommodation_agent_service2 import AccommodationAgentService
-import logging
+from app.services.agents.accommodation_agent_service import AccommodationAgentService
+from app.services.members.member_service import get_member_id_by_request
+from app.services.messaging.messaging_service import send_push_message
+
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+# 테스트용 환경변수 로드
+from dotenv import load_dotenv
+load_dotenv()
+
 
 router = APIRouter()
 
@@ -35,8 +47,10 @@ class TravelPlanRequest(BaseModel):
 
 @router.post("/plan")
 async def generate_plan(
+    request: Request,
     user_input: TravelPlanRequest,
     agent_type: List[str] = Query(..., alias="agent_type[]"),
+    session: AsyncSession = Depends(get_async_session),
 ):
     try:
         print("프론트에서 받은 데이터:", user_input)
@@ -71,6 +85,9 @@ async def generate_plan(
         logging.info(f"라우터받은 데이터----------------: {input_dict}")
         # 최종 여행 일정 생성 함수 호출 (외부 데이터가 포함된 상태)
         result = await travel_schedule_agent_service.create_plan(input_dict)
+
+        # 푸시 메시지 전송
+        await send_push_message(request, session, "EasyTravel 알림", "에이전트가 일을 마쳤습니다.")
 
         return {
             "status": "success",

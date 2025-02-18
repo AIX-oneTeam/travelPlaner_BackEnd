@@ -57,12 +57,12 @@ class GoogleMapTool(BaseTool):
     name: str = "GoogleMapTool"
     description: str = "구글 맵 api를 사용하여 숙소 리스트 검색 툴"
     
-    def _run(self, location: str, location_coordinates:str) -> str:
+    def _run(self, main_location: str, title:str,  location_coordinates:str) -> str:
         try:
             conn = http.client.HTTPSConnection("google.serper.dev")
 
             payload = json.dumps({
-            "q": f"{location}숙소",
+            "q": f"{title} {main_location}",
             'll': f"@{location_coordinates},15.1z", 
             "gl": "kr",
             "hl": "ko"
@@ -112,12 +112,12 @@ class GoogleHotelSearchTool(BaseTool):
     name: str = "Google Hotel Search"
     description: str = "구글 호텔 검색 API를 사용하여 텍스트 정보를 검색"
     
-    def _run(self, location: str, start_date: str, end_date: str, adults: int, children: int) -> str:
+    def _run(self, main_location: str, start_date: str, end_date: str, adults: int, children: int) -> str:
         try:            
             
             params = {
                 "engine": "google_hotels",
-                'q': f"{location} 숙소", 
+                'q': f"{main_location} 숙소", 
                 "check_in_date": start_date,
                 "check_out_date": end_date,
                 "adults": adults,
@@ -134,4 +134,31 @@ class GoogleHotelSearchTool(BaseTool):
             return hotel_results
         
         except Exception as e:
-            return f"[GoogleHotelSearchTool] 에러: {str(e)}"        
+            return f"[GoogleHotelSearchTool] 에러: {str(e)}" 
+               
+# 구글 이미지, url 검색 툴
+class GoogleIamgeSearchTool(BaseTool):
+    name: str = "Google image Search"
+    description: str = "구글 검색 API를 통해 숙소의 image, URL을 검색"
+    
+    def _run(self, main_location: str, title: str) -> str:
+        try:            
+            conn = http.client.HTTPSConnection("google.serper.dev")
+
+            payload = json.dumps({
+            "q": f"{title}{main_location}",
+            "location": "South Korea",
+            "gl": "kr",
+            "hl": "ko"
+            })
+            headers = {
+            'X-API-KEY': 'a8c775ccdc443e339ea7092b92af166a6163fa1f',
+            'Content-Type': 'application/json'
+            }
+            conn.request("POST", "/images", payload, headers)
+            res = conn.getresponse()
+            data = res.read()
+            print(data.decode("utf-8"))
+            
+        except Exception as e:
+            return f"[GoogleUrlSearchTool] 에러: {str(e)}"
