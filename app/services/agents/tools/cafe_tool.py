@@ -84,6 +84,59 @@ def simplify_address(region: str) -> str:
         
     return result
 
+class RedisCafeSearchTool(BaseTool):
+    name: str = "RedisCafeSearchTool"
+    description: str = "Redis에서 특정 위치의 카페 정보 검색"
+
+    async def _fetch_query(self, client: httpx.AsyncClient, query: str) -> str:
+
+        url = "https://openapi.naver.com/v1/search/blog.json"
+        headers = {
+            "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
+            "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
+        }
+        params = {"query": query, "display": 20, "start": 1, "sort": "sim"}
+        try:
+            resp = await client.get(url, headers=headers, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("items", [])
+            if not items:
+                return f"[NaverBlogSearchTool] '{query}' 검색 결과 없음."
+            results = []
+            for item in items:
+                title = item.get("title", "")
+                link = item.get("link", "")
+                desc = item.get("description", "")
+                results.append(f"제목: {title}\n링크: {link}\n설명: {desc}\n")
+            result_text = "\n".join(results)
+            return f"검색 쿼리: {query}\n결과:\n{result_text}"
+        except Exception as e:
+            return f"[NaverBlogSearchTool] 검색 쿼리 {query} 에러: {str(e)}"
+        
+    async def _arun(self, main_location: str, keywords:List[str]) -> str:
+        if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
+            return "[NaverBlogSearchTool] 네이버 API 자격 증명이 없습니다."
+        
+        simplified_location = simplify_address(main_location)
+        # keywords가 비어있으면 기본 검색어를 사용
+        if keywords:
+            keywords_query = f"{simplified_location} 카페 +{' +'.join(keywords)}"
+        else:
+            keywords_query = f"{simplified_location} 카페"
+        
+        querys =[keywords_query, simplified_location+" 카페", simplified_location+" 느좋 카페"]
+        
+        async with httpx.AsyncClient() as client:
+            # 각 검색어마다 비동기 요청(task)을 생성합니다.
+            tasks = [self._fetch_query(client, query) for query in querys]
+            results = await asyncio.gather(*tasks)
+            # 각 검색 결과를 구분하기 위해 빈 줄 두 개로 연결
+            return "\n---------------\n".join(results)
+            
+    def _run(self, main_location: str, keywords:List[str]) -> str:
+        return asyncio.run(self._arun(main_location, keywords))
+    
 class NaverBlogSearchTool(BaseTool):
     name: str = "NaverBlogSearch"
     description: str = "네이버 웹 검색 API를 사용해 카페 검색"

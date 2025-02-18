@@ -7,8 +7,50 @@ from typing import Dict, Optional
 import os
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
+from app.dtos.cafe_models import CafeList
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+from fastapi import HTTPException, Depends
+from app.repository.redis_client import get_redis
+from redis.asyncio import Redis
+import json
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+async def save_cafe_info(cafe_data_list: dict, redis_client:Redis):
+    try:
+        # 개별 카페 데이터 저장
+        for cafe_data in cafe_data_list.get("spots", []):
+            cafe_id = cafe_data["placeId"]
+            await redis_client.set(f"cafe:{cafe_id}", json.dumps(cafe_data))
+            
+            tags = [cafe_data["main_location"]] + cafe_data["keywords"]
+            for tag in tags:
+                await redis_client.sadd(f"tag:{tag}", cafe_id)
+        return "[CafeAgentService] : 성공적으로 저장되었습니다."
+
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {error_details}")
+        return f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {str(e)}"
+            
+async def get_cafes_by_tag(tag: str, redis_client: Redis):
+    """
+    특정 태그(지역 또는 키워드)에 해당하는 모든 카페 조회
+    """
+    cafe_ids = await redis_client.smembers(f"tag:{tag}")  # 태그에 해당하는 placeId 리스트 가져오기
+
+    if not cafe_ids:
+        print(f"[CafeAgentService] - 태그 '{tag}'에 해당하는 카페를 찾을 수 없습니다.")
+        return None
+    cafes = []
+    for cafe_id in cafe_ids:
+        cafe_data = await redis_client.get(f"cafe:{cafe_id}")
+        if cafe_data:
+            cafes.append(json.loads(cafe_data))
+
+    return cafes
+            
             
 class CafeAgentService:
     """
@@ -34,15 +76,10 @@ class CafeAgentService:
         self.agents = self._create_agents()
         self.tasks = self._create_tasks()
         
-        if "collector_task" in self.tasks and "researcher" in self.tasks:
-            self.tasks["researcher_task"].context = [self.tasks["collector_task"]]
-            
-        if "researcher_task" in self.tasks and "reviewer_task" in self.tasks:
-            self.tasks["reviewer_task"].context = [self.tasks["researcher_task"]]
-    
-        if "researcher_task" in self.tasks and "Decider_task" in self.tasks:
-            self.tasks["Decider_task"].context = [self.tasks["reviewer_task"]]
-        
+        self.tasks["researcher_task"].context = [self.tasks["collector_task"]]
+        self.tasks["reviewer_task"].context = [self.tasks["researcher_task"]]
+        self.tasks["decider_task"].context = [self.tasks["reviewer_task"]]
+        self.draft_crew = Crew(agents=[self.agents['decider']], tasks=[self.tasks['decider_task']], verbose=True)  
         self.crew = Crew(agents=list(self.agents.values()), tasks=list(self.tasks.values()),process=Process.sequential, verbose=True)  
 
     def _create_agents(self) -> Dict[str, Agent]:
@@ -86,7 +123,7 @@ class CafeAgentService:
                 verbose=True,
                 stop_on_failure=True
             ),
-            "Decider" : Agent(
+            "decider" : Agent(
                 role="고객의 요구사항을 가장 많이 반영한 카페 선정",
                 goal="고객의 여행지에서 인기있고, 고객의 선호도를 반영한 카페를 선정합니다.",
                 backstory="""
@@ -105,7 +142,7 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. tool 사용시 "{main_location}"과 "keywords"를 순서대로 입력하세요.
-                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts}을 반영한 키워드 리스트
+                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트
                 2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요.
                 3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
                 4. 포스팅 횟수가 동일한 카페들은 "비추' 등의 부정적인 의견이 적은 포스팅부터 먼저 나열해주세요. 
@@ -149,68 +186,88 @@ class CafeAgentService:
                 2. researcher가 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
                 3. 카페 특징은 Decider가 고객 요구사항에 맞는 카페인지 점검할 수 있도록 구체적으로 써주세요.
                 4. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
+                5. 리뷰를 보고, 카페가 아닌 식당, 미용실, 호텔, 리조트 등의 경우 삭제해주세요.
                 """,
                 expected_output="""
                 중복되지 않는 카페 리스트를 반환해주세요.
-                - 이름
-                - 포스팅 횟수
-                - 카페 특징(분위기, 시그니처 메뉴, 주요 특징, 긍정 리뷰, 부정 리뷰 요약)
-                - placeId
-                - 주소
-                - 이미지url
-                - 위도
-                - 경도
-                - 전화번호
-                - 홈페이지url
-                - 운영 시간(모르는 경우 "정보 없음")
+                main_location: {main_location}
                 """,        
                 agent=self.agents["reviewer"],
+                output_pydantic=CafeList,
                 context=[]
             ),
-            "Decider_task" : Task(
+            "decider_task" : Task(
                 description="""
                 1. 고객의 요구사항({prompt}), 여행 컨셉({concepts}), 주 연령대({ages})가 반영된 카페를 가장 우선적으로 선택하세요.
-                2. reviewer가 반환한 특징을 참고해 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
-                3. reviewer가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용해 각 카페의 운영 시간과 웹사이트 정보를 수집하세요.
+                2. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
+                3. placeId를 리스트로 묶어 tool의 input값으로 사용해 각 카페의 운영 시간과 웹사이트 정보를 수집하세요.
                 4. description에는 카페의 주요 특징과 시그니처메뉴, 사람들이 공통적으로 좋아했던 부분을 요약해주세요.
-                모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
-                {main_location}에 위치한 카페만 선택하세요.
-                호텔, 리조트 등의 숙소나 미용실 등 다른 업종인 경우 선택하지 마세요.
+                5. 모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
+                6. {main_location}에 위치한 카페만 선택하세요.
+                7. 호텔, 리조트 등의 숙소나 미용실 등 다른 업종인 경우 선택하지 마세요.
+                참고 카페 리스트 : {cached_cafe_lists}
                 """,
                 expected_output="""
-                prompt({prompt})가 유효한 값(빈 문자열(""), None, 또는 null이 아닌 경우)이면 5개의 카페를, 그렇지 않으면 {n}*2개의 카페를 반환하세요.                spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
+                prompt({prompt})가 유효한 값(빈 문자열(""), None, 또는 null이 아닌 경우)이면 5개의 카페를, 그렇지 않으면 {n}*2개의 카페를 반환하세요.
+                spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
                 order는 방문할 순서입니다. spot_time을 기준으로 빠른 시간부터 오름차순 정렬해주세요. 순서는 1부터 시작합니다.
                 spot_category는 항상 3으로 고정해주세요
                 day_x는 {n}일의 여행 일정 중 몇일차인지 입니다.(만약, day_x:1 이라면 1일차에 방문한다는 의미)  
                 business_status는 boolean으로 반환해주세요.
                 """,
                 context=[],        
-                agent=self.agents["Decider"],
+                agent=self.agents["decider"],
                 output_pydantic=spots_pydantic
             )
         }     
     @time_check   
-    async def create_recommendation(self, input_data: dict, prompt: Optional[str] = None) -> dict:
+    async def create_recommendation(self, input_data: dict, 
+                                    prompt: Optional[str] = None,
+                                    redis_client: Redis = None) -> dict:
         """
         사용자 맞춤 카페를 추천하는 에이전트
         """
         if input_data is None:
             raise ValueError("[CafeAgent] 에러 - input_data이 없습니다. 잘못된 요청을 보냈는지 확인해주세요")
-
-        input_data["concepts"] = ', '.join(input_data.get('concepts',''))
+       
+        input_data["concepts"] = ', '.join(input_data.get('concepts',[]))
         input_data["prompt"] = prompt
         input_data["n"] = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
-        
-        # 실행
+
+        if redis_client is None:
+            raise ValueError("[CafeAgent] 에러 - Redis 연결을 확인해주세요")
+  
         try:
-            result = await self.crew.kickoff_async(inputs=input_data)
-            print(f"result:{result}")
-            return result.pydantic.model_dump()
+            cached_cafe_lists = await get_cafes_by_tag(input_data["main_location"], redis_client) or []
+            print(f"cached_cafe_lists: {cached_cafe_lists}")
+            input_data["cached_cafe_lists"] = cached_cafe_lists
+            
+            if len(cached_cafe_lists) < (input_data["n"])*2:
+                try:
+                    result = await self.crew.kickoff_async(inputs=input_data)
+                    reviewer_result = self.tasks['reviewer_task'].output.pydantic.model_dump()
+                    print(f"result_task3_output_raw:{reviewer_result}")
+                    await save_cafe_info(reviewer_result,redis_client)
+                    print(f"result : {result}")
+                    return result.pydantic.model_dump()
+                except Exception as e:
+                    print(f"[CafeAgent] 에러: {e}")
+                    error_details = traceback.format_exc()
+                    print(f"[CafeAgent] 상세 에러: {error_details}")
+                    raise e  # 또는 적절한 에러 메시지를 담아 반환                   
+            else:
+                try:
+                    result = await self.draft_crew.kickoff_async(inputs=input_data)
+                    print(f"result-draft-crew:{result}")
+                    return result.pydantic.model_dump()
+                except Exception as e:
+                    print(f"[CafeAgent] 에러: {e}")
+                    error_details = traceback.format_exc()
+                    print(f"[CafeAgent] 상세 에러: {error_details}")
+                    raise e  # 또는 적절한 에러 메시지를 담아 반환   
+                
         except Exception as e:
-            print(f"[CafeAgent] 에러: {e}")
-            error_details = traceback.format_exc()  # 전체 오류 스택 추적
-            print(f"[CafeAgent] 상세 에러: {error_details}")  # 터미널에 상세 오류 출력
-               
+            print(f"[CafeAgent] 에러 - {e}")                
                 
 # {
 #   "ages": "20대",
