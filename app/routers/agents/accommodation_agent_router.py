@@ -40,7 +40,7 @@ async def get_accommodation(user_input: TravelPlanRequest, prompt: Optional[str]
         if prompt:
             input_data['prompt'] = prompt         
         try:
-            result = await AccommodationAgentService().create_recommendation(input_data)
+            result = await AccommodationAgentService.create_recommendation_accommodation(input_data)
         except Exception as e:
             logger.error(f"[ERROR] accommodationagentservie create_accommodation_recemmendation() 오류 발생: {e}")
             raise HTTPException(status_code=500, detail="추천 생성 중 오류 발생")

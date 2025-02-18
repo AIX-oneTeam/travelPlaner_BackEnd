@@ -14,6 +14,7 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
+from app.utils.time_check import time_check
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -349,7 +350,8 @@ class RestaurantAgentService:
             "spots": spots_data.get("spots", []),
         }
 
-    async def create_recommendation(
+    @time_check
+    async def create_recommendation_restaurant(
         self, input_data: dict, prompt: Optional[str] = None
     ) -> dict:
         """추천 워크플로우를 실행하는 메서드"""

@@ -1,8 +1,14 @@
 import asyncio
+from datetime import datetime
 import logging
 import time
 
+file_handler = logging.FileHandler(f"logs/time_check_{datetime.now().strftime('%Y-%m-%d')}.log", encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(file_handler)
 
 def time_check(func):
     """_summary_
@@ -22,16 +28,9 @@ def time_check(func):
             end_time = time.time()
             execution_time = end_time - start_time
 
-            # 분 단위로 변환
-            execution_time_minute = execution_time / 60
-            # 초 측정
-            execution_time_second = execution_time % 60
+            minutes, seconds = divmod(execution_time, 60)
 
-            # 포매팅
-            execution_time_minute = round(execution_time_minute, 2)
-            execution_time_second = round(execution_time_second, 2)
-
-            logger.info(f"💡[ time_check ] 비동기 함수입니다 : {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
+            logger.info(f"[ time_check ] 비동기 함수입니다 : {func.__name__} 함수 실행시간 : {int(minutes)}분 {seconds:.2f}초")
             return result
         return wrapper
     else:
@@ -43,16 +42,9 @@ def time_check(func):
             end_time = time.time()
             execution_time = end_time - start_time
 
-            # 분 단위로 변환
-            execution_time_minute = execution_time / 60
-            # 초 측정
-            execution_time_second = execution_time % 60
+            minutes, seconds = divmod(execution_time, 60)
 
-            # 포매팅
-            execution_time_minute = round(execution_time_minute, 2)
-            execution_time_second = round(execution_time_second, 2)
-
-            logger.info(f"💡[ time_check ] 동기 함수입니다 : {func.__name__} 함수 실행시간 : {execution_time_minute}분 {execution_time_second}초")
+            logger.info(f"[ time_check ] 동기 함수입니다 : {func.__name__} 함수 실행시간 : {int(minutes)}분 {seconds:.2f}초")
             return result
 
         return wrapper
