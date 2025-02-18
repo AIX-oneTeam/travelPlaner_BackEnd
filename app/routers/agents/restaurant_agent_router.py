@@ -35,7 +35,7 @@ async def get_restaurants(
             input_data["prompt"] = prompt
 
         try:
-            result = await restaurant_service.create_recommendation(
+            result = await restaurant_service.create_recommendation_restaurant(
                 input_data, prompt, session, redis
             )
         except Exception as e:

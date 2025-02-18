@@ -20,8 +20,8 @@ from app.services.agents.tools.restaurant_tool import (
 )
 from app.services.agents.restaurant_redis import RestaurantRedisService
 from redis.asyncio import Redis
+from app.utils.time_check import time_check
 import logging
-
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -356,8 +356,9 @@ class RestaurantAgentService:
             },
             "spots": spots_data.get("spots", []),
         }
-
-    async def create_recommendation(
+    
+    @time_check
+    async def create_recommendation_restaurant(
         self,
         input_data: dict,
         prompt: Optional[str] = None,

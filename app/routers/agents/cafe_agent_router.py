@@ -21,7 +21,7 @@ async def get_cafes(
     - CrewAI 실행 후 일정(JSON) 반환.
     """
     try:
-        result = await cafe_service.create_recommendation(user_input.model_dump(),
+        result = await cafe_service.create_recommendation_cafe(user_input.model_dump(),
                                                           prompt = prompt,
                                                           redis_client= redis_client,
                                                         )     

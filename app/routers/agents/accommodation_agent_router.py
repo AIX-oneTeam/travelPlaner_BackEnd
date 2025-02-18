@@ -32,7 +32,7 @@ async def get_accommodation(user_input: TravelPlanRequest ):
         # model_dump()를 사용하여 입력 데이터를 dict 형태로 변환
         input_data = user_input.model_dump()
         try:
-            result = await AccommodationAgentService.create_recommendation(input_data)
+            result = await AccommodationAgentService.create_recommendation_accommodation(input_data)
         except Exception as e:
             logger.error(f"[ERROR] accommodationagentservie create_recommendation() 오류 발생: {e}")
             raise HTTPException(status_code=500, detail="추천 생성 중 오류 발생")

@@ -221,7 +221,7 @@ class CafeAgentService:
             )
         }     
     @time_check   
-    async def create_recommendation(self, input_data: dict, 
+    async def create_recommendation_cafe(self, input_data: dict, 
                                     prompt: Optional[str] = None,
                                     redis_client: Redis = None) -> dict:
         """

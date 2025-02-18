@@ -13,6 +13,7 @@ from app.services.agents.tools.accommodation_tool import (
     GoogleReviewTool,
     GoogleHotelSearchTool
 )
+from app.utils.time_check import time_check
 
 
 load_dotenv()
@@ -101,7 +102,8 @@ class AccommodationAgentService:
             print(result.__dict__['raw'])
             return result.__dict__['raw']
     
-    async def create_recommendation(
+    @time_check
+    async def create_recommendation_accommodation(
         self, input_data: dict,
     ) -> dict:
         """추천 워크플로우를 실행하는 메서드"""
