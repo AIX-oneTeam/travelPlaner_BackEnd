@@ -39,6 +39,10 @@ logging.basicConfig(
         logging.StreamHandler(),
     ],
 )
+logging.getLogger("sqlalchemy.engine").setLevel(logging.DEBUG)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.DEBUG)
+logging.getLogger("sqlalchemy.orm").setLevel(logging.DEBUG)
+
 
 logger = logging.getLogger(__name__)
 logger.info("💡로그 설정 완료")
@@ -126,7 +130,6 @@ async def jwt_auth_middleware(request: Request, call_next):
             except Exception as e:
                 # 리프레시 토큰 갱신 실패
                 logger.warning("💡리프레시 토큰 갱신 실패")
-                print(f"리프레시 토큰 갱신 실패: {str(e)}")
                 response = await call_next(request)
                 response.delete_cookie("access_token")
                 response.delete_cookie("refresh_token")
@@ -135,7 +138,6 @@ async def jwt_auth_middleware(request: Request, call_next):
     except Exception as e:
         logger.warning(f"💡JWT 미들웨어 오류 : {str(e)}")
         # 예상치 못한 오류 처리
-        print(f"JWT 미들웨어 오류: {str(e)}")
         request.state.user = None
         return await call_next(request)
 
@@ -147,13 +149,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
     error_details = exc.errors()  # Pydantic 검증 오류 내용 가져오기
 
-    print("==================================================")
-    print("요청 데이터:", request_data)  # 콘솔 출력 (디버깅)
+    logger.info("요청 데이터:", request_data)  # 콘솔 출력 (디버깅)
 
-    print("==================================================")
-    print("검증 실패:", error_details)  # 오류 정보 출력
+    logger.info("검증 실패:", error_details)  # 오류 정보 출력
 
-    print("==================================================")
 
     return JSONResponse(
         status_code=422,

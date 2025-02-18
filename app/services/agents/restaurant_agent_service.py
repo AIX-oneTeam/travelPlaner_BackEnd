@@ -34,7 +34,7 @@ class RestaurantAgentService:
     def initialize(self):
         """서비스 초기화"""
         # print("RestaurantAgentService 초기화 중...")
-        self.llm = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
+        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
         self.restaurant_search_tool = RestaurantBasicSearchTool()
@@ -89,6 +89,17 @@ class RestaurantAgentService:
                 verbose=True,
                 async_execution=True,
             ),
+            "keyword_extraction": Agent(
+                role="키워드 추출 전문가",
+                goal="여행 정보와 프롬프트에서 맛집 검색에 필요한 정확히 3개의 핵심 키워드를 추출합니다.",
+                backstory="""나는 자연어 처리 전문가로, 사용자의 요구사항에서 핵심 키워드를 추출하여 맛집 검색의 정확도를 높입니다.
+                각 키워드는 '지역명 + 목적' 형식으로 구성하며, 실제 검색에 효과적인 구체적인 키워드만을 사용합니다.""",
+                tools=[],
+                llm=self.llm,
+                verbose=True,
+                async_execution=True,
+                memory=True,
+            ),
             "restaurant_search": Agent(
                 role="맛집 기본 조회 전문가",
                 goal="좌표 정보를 활용하여 식당의 기본 정보를 조회한다.",
@@ -97,6 +108,7 @@ class RestaurantAgentService:
                 llm=self.llm,
                 verbose=True,
                 async_execution=True,
+                memory=True,
             ),
             "final_recommendation": Agent(
                 role="최종 추천 에이전트",
@@ -139,6 +151,29 @@ class RestaurantAgentService:
                 expected_output="위치 좌표",
             ),
             Task(
+                description=f"""이전 Task에서 얻은 좌표와 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
+                # 입력 정보
+                지역: {input_data['main_location']}
+                좌표: 이전 태스크에서 생성된 좌표 결과
+                여행 기간: {input_data['start_date']} ~ {input_data['end_date']}
+                연령대: {input_data['ages']}
+                동반자: {', '.join([f"{c['label']} {c['count']}명" for c in input_data['companion_count']])}
+                요청사항: {prompt_text}
+
+                # 규칙
+                1. 정확히 3개의 검색 키워드를 생성할 것
+                2. 각 키워드는 "{input_data['main_location']} + 목적" 형식으로 구성할 것
+                3. 실제 검색에 효과적인 구체적인 키워드로 구성할 것
+                4. 반환 형식은 다음과 같이 할 것:
+                {{
+                    "coordinates": "이전 Task의 coordinates 값을 그대로 전달",
+                    "keywords": ["키워드1", "키워드2", "키워드3"]
+                }}
+                """,
+                agent=self.agents["keyword_extraction"],
+                expected_output="좌표와 3개의 맛집 검색 키워드",
+            ),
+            Task(
                 description="맛집 기본 정보 조회",
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
@@ -155,7 +190,7 @@ class RestaurantAgentService:
                 {{
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
-                    "description": "string (가게 설명, 최소 150자 이상 255자 이하)",
+                    "description": "string (가게 설명, 최소 150자 이상 230자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
                     "business_hours": "string 또는 null (영업 시간 정보)"
                     "url": "string 또는 null (가게 URL, 공식 정보 우선)",
@@ -165,7 +200,7 @@ class RestaurantAgentService:
                 - **eng_name**: kor_name을 영어로 번역하여 입력할 것.
                     - 예시: "미포집" -> "Mipojip"
                     - 식당 이름의 의미를 살려서 적절히 번역할 것.
-                - **description**: 수집한 데이터를 바탕으로, **가게의 주요 메뉴, 분위기, 위치적 특징**을 포함하여 **최소 150자 이상 255자 이하**로 작성할 것.
+                - **description**: 수집한 데이터를 바탕으로, **가게의 주요 메뉴, 분위기, 위치적 특징**을 포함하여 **최소 150자 이상 230자 이하**로 작성할 것.
                     - **절대 식당 이름을 문장 앞에 사용하지 말 것.**  
                         - 금지된 형식: `"OO식당은 유명한 맛집이다."`, `"XX식당에서는 대표 메뉴로~"`
                         - 올바른 형식: `"육즙이 풍부한 소고기 스테이크가 대표 메뉴로, 깊은 풍미가 느껴진다."`
@@ -240,34 +275,40 @@ class RestaurantAgentService:
                 - **address**: 식당의 도로명 주소를 수집하며, 도로명 주소가 없는 경우 지번 주소를 반환할 것.  
                 - **latitude, longitude**: 검색된 식당의 정확한 위도 및 경도 좌표를 반환할 것.  
                 - **map_url**: 해당 식당의 카카오맵 URL을 제공할 것.  
-                - **phone_number**: 식당의 전화번호를 수집할 것.  
+                - **phone_number**: 식당의 전화번호를 수집할 것.
 
-                ### **여행 일정 기반 필수 규칙**:
-                - **spot_category**는 항상 `2`로 설정해야 한다.  
-                - **day_x**는 사용자의 여행 일정에서 **해당 식당이 추천된 날짜**를 의미한다.  
-                - **order**는 `day_x` 내에서의 추천 순서이며, 이동 동선과 식사 유형(아침/점심/저녁)을 고려하여 자동 설정된다.  
-                - **order**: 여행 동선과 식사 유형을 고려한 방문 순서.  
-                    - `1` (아침): 가벼운 조식 (예: 브런치, 해장국, 한식 조식, 베이커리).  
-                    - `2` (점심): 든든한 식사 (예: 한정식, 고기류, 해산물, 파스타 등).  
-                    - `3` (저녁): 든든한 식사 또는 분위기 있는 저녁 (예: 고기류, 해산물, 스테이크, 한정식, 술과 함께할 요리, 로컬 야시장, 바 & 펍).  
-                - **위치 정보(latitude, longitude)를 활용하여 사용자의 이동 동선을 고려해 추천할 것.**  
-                - **같은 지역에서 지나치게 먼 이동이 발생하지 않도록 조정할 것.**  
+                ## 여행 일정 기반 필수 규칙
+                - `spot_category`는 항상 `2`로 설정해야 한다.  
+                - `day_x`는 사용자의 여행 일정에서 **해당 식당이 추천된 날짜**를 의미하며, 반드시 **숫자로만 반환**해야 한다.  
+                    - `{input_data['start_date']}`을 `1`로 설정하고 이후 날짜는 `+1`씩 증가.  
+                    - `{input_data['end_date']}`을 포함하여 자동으로 `day_x`를 계산.  
+                - `order`는 `day_x` 내에서의 추천 순서이며, 반드시 **1, 2, 3까지만 가능**하다.  
+                    - 하루에 **최대 3개의 추천 (`order = 1, 2, 3`)** 만 가능하다.  
+                    - `order = 3`이 되면, 다음 추천은 **`day_x +1`로 이동**하며, `order = 1`부터 다시 시작해야 한다.  
+                - `order`는 여행 동선과 식사 유형을 고려한 방문 순서이며, 다음 기준을 따른다.  
+                    - `1` (아침): 브런치, 해장국, 한식 조식, 베이커리 등  
+                    - `2` (점심): 한정식, 고기류, 해산물, 파스타 등  
+                    - `3` (저녁): 고기류, 해산물, 스테이크, 한정식, 로컬 야시장, 바 & 펍 등  
+                - `latitude, longitude`를 활용하여 **사용자의 이동 동선을 고려**해 추천할 것.  
+                - 같은 지역에서 **불필요한 장거리 이동이 발생하지 않도록 조정**할 것.  
 
-                - **spot_time**은 사용자의 식사 시간 패턴을 고려하여, 예상 방문 시간을 `hh:mm:ss` 형식으로 반환해야 한다.
-                    - `08:00 ~ 10:00` (아침), `12:00 ~ 14:00` (점심), `18:00 ~ 20:00` (저녁).  
-                    - 일정 및 선호도에 따라 ±1시간 조정 가능.  
-                - 실제 여행 일정과 사용자의 선호도에 따라 ±1시간 조정될 수 있음.  
-                
-                - **order 및 day_x 값은 사용자의 여행 일정과 동선을 고려하여 자동 조정해야 한다.**  
+                - `spot_time`은 사용자의 식사 시간 패턴을 고려하여 `hh:mm:ss` 형식으로 반환해야 한다.  
+                    - `{input_data['start_date']}`을 기준으로 `day_x`를 계산하여 시간 설정.  
+                    - 아침: `08:00 ~ 10:00` 중 선택  
+                    - 점심: `12:00 ~ 14:00` 중 선택  
+                    - 저녁: `18:00 ~ 20:00` 중 선택  
+                    - 사용자의 선호도 및 일정에 따라 ±1시간 조정 가능  
 
-                ### **반환 데이터 형식 및 예외 처리**:
+                - `order` 및 `day_x` 값은 사용자의 여행 일정(`{input_data['start_date']} ~ {input_data['end_date']}`)을 고려하여 자동 조정해야 한다.  
+
+                ## 반환 데이터 형식 및 예외 처리
                 - 기존 JSON 형식을 유지하면서, 위에서 지정한 필드를 업데이트해야 한다.  
                 - `business_status`는 반드시 `true`, `false` 값으로 반환할 것.  
-                - 정보가 없는 경우 해당 필드는 `null`로 설정할 것.  
+                - 정보가 없는 경우 해당 필드는 `null`로 설정할 것.
 
                 ### **검색 주의사항**:
                 - 모든 식당 검색 시 "{input_data['main_location']}"을 포함하여 검색할 것.  
-                - 정확한 검색을 위해 지역명을 검색어 앞에 추가할 것 (예: "{input_data['main_location']} 식당이름").  
+                - 정확한 검색을 위해 지역명을 검색어 앞에 추가할 것 (예: "{input_data['main_location']} 식당이름").
 
                 위 기준을 적용하여 **카카오 로컬 API를 활용한 상세 정보를 반환**하라.
                 """,
@@ -320,7 +361,12 @@ class RestaurantAgentService:
             tasks = self._create_tasks(processed_input, prompt_text)
 
             # 3. Crew 실행
-            crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True, memory=True)
+            crew = Crew(
+                tasks=tasks,
+                agents=list(self.agents.values()),
+                verbose=True,
+                memory=True,
+            )
 
             # 4. 결과 처리
             result = await crew.kickoff_async()
