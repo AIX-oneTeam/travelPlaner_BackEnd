@@ -180,22 +180,7 @@ class NaverBlogCralwerTool(BaseTool):
             placeId = data.get("placeId")
             if not placeId:  # placeId가 없는 경우만 체크
                 return None
-            
-            # 네이버 블로그 본문 추출
-            # content = soup.find('div', {'class': 'se-main-container'})
-            # if content:
-            #     # 텍스트 추출 및 공백 정리
-            #     text = ' '.join(content.stripped_strings)
-            #     cleaned_text = re.sub(r'\s+', ' ', text).strip()
-                
-            #     # 불필요한 문자열 제거
-            #     unwanted_strings = ['blog.naver.com', 'search.naver.com', 'open.kakao.com']
-            #     for unwanted in unwanted_strings:
-            #         cleaned_text = cleaned_text.replace(unwanted, '').strip()
-
-            #     # 이모티콘 제거
-            #     cleaned_text = emoji.replace_emoji(cleaned_text, replace='')
-                                
+                                    
             return {
                 "placeId": placeId,
                 "name": data.get("name", ""),
@@ -203,8 +188,6 @@ class NaverBlogCralwerTool(BaseTool):
                 "latitude": data.get("latitude", ""),
                 "longitude": data.get("longitude", ""),
                 "tel": data.get("tel", ""),
-                # "url": data.get("bookingUrl", ""),
-                # "contents" : cleaned_text
             }                  
 
         except Exception as e:
@@ -277,7 +260,7 @@ class NaverReviewCralwerTool(BaseTool):
             return {
                 "placeId": placeId,
                 "image_url": thumbnail,
-                "reviews": reviews_list
+                "reviews": reviews_list,
             }
         except Exception as e:
             return f"[cafe_tool:NaverReviewCralwer] 에러: {str(e)}"

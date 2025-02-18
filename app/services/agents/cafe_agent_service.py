@@ -10,24 +10,27 @@ from app.utils.time_check import time_check
 from app.dtos.cafe_models import CafeList
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-from fastapi import HTTPException, Depends
-from app.repository.redis_client import get_redis
 from redis.asyncio import Redis
 import json
-from sqlalchemy.ext.asyncio import AsyncSession
-
 
 async def save_cafe_info(cafe_data_list: dict, redis_client:Redis):
     try:
+        # 24시간을 초로 변환 (24 * 60 * 60 = 86400초)
+        ONE_DAY_IN_SECONDS = 86400
+        
         # 개별 카페 데이터 저장
         for cafe_data in cafe_data_list.get("spots", []):
             cafe_id = cafe_data["placeId"]
-            await redis_client.set(f"cafe:{cafe_id}", json.dumps(cafe_data))
+            location = cafe_data["main_location"]
             
-            tags = [cafe_data["main_location"]] + cafe_data["keywords"]
-            for tag in tags:
-                await redis_client.sadd(f"tag:{tag}", cafe_id)
-        return "[CafeAgentService] : 성공적으로 저장되었습니다."
+            # 카페 정보 저장
+            await redis_client.set(f"cafe:{cafe_id}", json.dumps(cafe_data), ex=ONE_DAY_IN_SECONDS)
+            
+            # location tag 저장
+            await redis_client.sadd(f"tag:{location}", cafe_id)
+            await redis_client.expire(f"tag:{location}", ONE_DAY_IN_SECONDS)
+            
+        return "[CafeAgentService] -save_cafe_info: 성공적으로 저장되었습니다."
 
     except Exception as e:
         error_details = traceback.format_exc()
@@ -113,9 +116,9 @@ class CafeAgentService:
             ),
             "researcher_detail" : Agent(
                 role="카페 상세 정보 수집 및 업종 검증가",
-                goal="카페의 상세 정보를 수집하고 업종이 카페가 아닌 장소는 삭제합니다.",
+                goal="카페의 상세 정보를 수집하고 업종에 카페 또는 베이커리가 포함되지 않은 장소는 삭제합니다.",
                 backstory="""
-                카페의 상세 정보를 수집하고, 카페가 아닌 장소는 리스트에서 삭제해주세요. 
+                카페의 상세 정보를 수집하고, 업종에 카페 또는 베이커리가 포함되지 않은 장소는 리스트에서 삭제해주세요. 
                 """,
                 tools=[self.get_cafe_business_info_tool],
                 allow_delegation=False,
@@ -128,7 +131,7 @@ class CafeAgentService:
                 role="카페의 리뷰를 분석하고, 카페의 특징을 추출합니다.",
                 goal="카페의 리뷰를 분석하고, 카페의 주요 특징과 분위기, 시그니처 메뉴를 추출합니다.",
                 backstory="""
-                카페의 최신 후기를 읽고, 카페의 주요 특징을 분석합니다. 리뷰를 읽고 카페가 아니라면 리스트에서 삭제해주세요.               
+                카페의 최신 후기를 읽고, 카페의 주요 특징을 분석합니다. 반드시 researcher_detail가 반환한 카페의 수만큼 카페를 반환해주세요.          
                 """,
                 tools=[self.get_cafe_review_tool],
                 allow_delegation=False,
@@ -157,32 +160,36 @@ class CafeAgentService:
                 1. tool 사용시 "{main_location}"과 "keywords"를 순서대로 입력하세요.
                 - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트
                 - 각각의 키워드는 하나의 형용사 또는 명사여야 하고, "카페"와 "지역명" "추천"은 제외해주세요.
-                - 키워드는 최대 3개까지만 입력 가능합니다.
+                - 키워드는 최대 3개까지만 입력 가능합니다. 여러개의 키워드가 같은 의미라면 1가지 키워드만 사용하세요.
                 2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요. 
                 3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
                 tool output이 반환한 모든 url을 빠짐없이 정리해주세요.
                 """,
                 expected_output="""
                 1. "keywords" : 사용한 키워드 리스트
-                2. n_cafe:"총 찾은 카페 갯수"
-                3. 카페 리스트
+                2. "n_cafe":"총 찾은 카페 갯수"
+                3. 카페별 리스트
                 - "name": "카페 이름"
-                - "n_posting": "포스팅 횟수"
+                - "n_posting": "포스팅 url 갯수"
                 - "blog_urls" : "블로그 url 리스트"
                 """,        
                 agent=self.agents["collector"],
             ),
             "researcher_task" : Task(
                 description="""
-                1. collector가 조사한 블로그들의 url만 리스트로 묶어 tool의 input으로 사용하세요. url은 None값이나 null이면 안됩니다. 
+                1. 카페 이름별로 url 리스트를 만들어 딕셔너리 타입으로 tool의 input으로 사용하세요. url은 None값이나 null이면 안됩니다. 
+                tool input 예시: 
+                - "카페A": ["url1", "url2", "url3"],
+                - "카페B": ["url4", "url5"],
                 2. tool의 output을 보고 address가 {main_location}에 위치하지 않은 카페는 삭제해주세요.
                 """,
                 expected_output="""
+                중복되지 않는 카페 리스트를 반환해주세요.
                 1. "keywords" : 사용한 키워드 리스트
-                2. n_cafe:"총 찾은 카페 갯수"             
+                2. "n_cafe":"총 찾은 카페 갯수"             
                 3. 카페 리스트
                 - "name": "카페이름"
-                - "n_posting": "포스팅 횟수"
+                - "n_posting": "포스팅 url 갯수"
                 - "placeId": "placeId"
                 - "address": "카페주소"
                 - "img_url": "img_url"
@@ -196,11 +203,12 @@ class CafeAgentService:
             "researcher_detail_task" : Task(
                 description="""
                 1. researcher가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
-                2. tool의 output을 보고 카페의 세부 정보를 수집하고, category에 "카페"가 포함 되지 않은 장소는 삭제해주세요.
+                2. tool의 output을 보고 카페의 세부 정보를 수집하고, category에 "카페" 또는 "베이커리"가 포함 되지 않은 장소는 삭제해주세요.
                 """,
                 expected_output="""
+                중복되지 않는 카페 리스트를 반환해주세요.
                 1. "keywords" : 사용한 키워드 리스트
-                2. n_cafe:"총 찾은 카페 갯수"             
+                2. "n_cafe":"총 찾은 카페 갯수"             
                 3. 카페 리스트             
                 - "name": "카페이름"
                 - "n_posting": "포스팅 횟수"
@@ -220,14 +228,16 @@ class CafeAgentService:
             "reviewer_task" : Task(
                 description="""
                 1. researcher_detail이 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
-                2. 반드시 tool_output이 반환한 카페의 수 만큼 카페를 반환해주세요.
+                2. 반드시 researcher_detail이 반환한 카페들의 placeId 갯수 만큼 카페를 반환해주세요.
                 3. researcher_detail이 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
                 4. 카페 특징은 고객 요구사항에 맞는 카페인지 점검할 수 있도록 구체적으로 써주세요.
                 5. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
                 """,
                 expected_output="""
                 중복되지 않는 카페 리스트를 반환해주세요.
+                반드시 researcher_detail이 반환한 카페들의 placeId 갯수 만큼 카페를 반환해주세요.
                 main_location: {main_location}
+                map_url: "https://map.kakao.com/link/map/"위도","경도"
                 """,        
                 agent=self.agents["reviewer"],
                 output_pydantic=CafeList,
@@ -276,20 +286,23 @@ class CafeAgentService:
   
         try:
             cached_cafe_lists = await get_cafes_by_tag(input_data["main_location"], redis_client) or []
-            print(f"cached_cafe_lists: {cached_cafe_lists}")
+            print(f"찾은 cached_cafe_lists 개수: {len(cached_cafe_lists)}")
+            print(f"----------------------------------------------------")
+            # print(f"cached_cafe_lists: {cached_cafe_lists}")
             input_data["cached_cafe_lists"] = cached_cafe_lists
             if len(cached_cafe_lists) < days*2:
+                print("저장된 카페 수가 부족해 새로 검색을 시작합니다")
+                print(f"----------------------------------------------------")
                 try:
+                    input_data["cached_cafe_lists"] = ""
                     result = await self.crew.kickoff_async(inputs=input_data)
                     reviewer_result = self.tasks['reviewer_task'].output.pydantic.model_dump()
-                    print(f"reviewr_task_output_raw:{reviewer_result}")
+                    # print(f"reviewr_task_output_raw:{reviewer_result}")
                     await save_cafe_info(reviewer_result,redis_client)
                     print(f"result : {result}")
                     return result.pydantic.model_dump()
                 except Exception as e:
                     print(f"[CafeAgent] 에러: {e}")
-                    error_details = traceback.format_exc()
-                    print(f"[CafeAgent] 상세 에러: {error_details}")
                     raise e  # 또는 적절한 에러 메시지를 담아 반환                   
             else:
                 try:
@@ -298,8 +311,6 @@ class CafeAgentService:
                     return result.pydantic.model_dump()
                 except Exception as e:
                     print(f"[CafeAgent] 에러: {e}")
-                    error_details = traceback.format_exc()
-                    print(f"[CafeAgent] 상세 에러: {error_details}")
                     raise e  # 또는 적절한 에러 메시지를 담아 반환   
                 
         except Exception as e:
