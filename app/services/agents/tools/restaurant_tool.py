@@ -106,14 +106,11 @@ class RestaurantBasicSearchTool(BaseTool):
         end = datetime.strptime(end_date.split("T")[0], "%Y-%m-%d")
         days = (end - start).days + 1
 
+        # 1일 5개, 2일 8개, 3일 11개, 4일 14개...
         if days == 1:
             return 5
-        elif days == 2:
-            return 8
-        elif days == 3:
-            return 10
         else:
-            return 10 + (days - 3) * 2
+            return 5 + (days - 1) * 3
 
     async def get_place_details(
         self, session: aiohttp.ClientSession, place_id: str
