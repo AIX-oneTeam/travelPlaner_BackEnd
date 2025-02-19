@@ -189,7 +189,9 @@ class RestaurantAgentService:
                 expected_output="좌표와 3개의 맛집 검색 키워드",
             ),
             Task(
-                description=f"""기존에 추천되었던 {input_data.get('existing_spot_names', [])} 식당들은 제외하고 정보 조회해주세요.""",
+                description=f"""{input_data['start_date']}부터 {input_data['end_date']}까지의 여행 일정에 맞춰서 맛집을 조회해주세요.
+                기존에 추천되었던 {input_data.get('existing_spot_names', [])} 식당들은 제외하고 정보를 조회해주세요.
+                """,
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
             ),
@@ -442,7 +444,6 @@ class RestaurantAgentService:
             # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
             processed_input["existing_spot_names"] = existing_spot_names
-            processed_input["member_id"] = member_id
 
             # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text)
