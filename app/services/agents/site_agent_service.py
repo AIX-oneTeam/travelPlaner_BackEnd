@@ -10,10 +10,10 @@ from crewai import Agent, Task, Crew, LLM
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
-import redis
+from app.utils.time_check import time_check
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -96,6 +96,7 @@ class TouristAgentService:
         logger.info(f"[Input Data] {input_data}")
         logger.info(f"[Prompt] {prompt}")
 
+<<<<<<< HEAD
         plan_id = input_data.get("plan_id")
         if not plan_id:
             raise HTTPException(status_code=400, detail="plan_id must be provided")
@@ -108,12 +109,19 @@ class TouristAgentService:
             logger.info(f"[Existing spots in plan {plan_id}]: {existing_spots}")
         else:
             existing_spots = []
+=======
+        if not input_data.get("main_location"):
+            raise HTTPException(
+                status_code=400, detail="main_location must be provided"
+            )
+>>>>>>> dev
 
         if "concepts" not in input_data or not isinstance(input_data["concepts"], list):
             input_data["concepts"] = []
 
         main_location_text = f"Location: {input_data.get('main_location')}. "
 
+<<<<<<< HEAD
         exclusion_text = (
             f"Please exclude these spots: {', '.join(existing_spots)}. "
             if existing_spots
@@ -125,6 +133,25 @@ class TouristAgentService:
             if prompt
             else f"{main_location_text}{exclusion_text}"
         )
+=======
+        exclusion_text = ""
+        existing_spots = input_data.get("existing_spots", [])
+        if existing_spots:
+            existing_names = ", ".join(
+                [spot.get("kor_name", "") for spot in existing_spots]
+            )
+            exclusion_text = (
+                f"Previously recommended tourist spots: ({existing_names}). "
+                "Please strictly exclude these and recommend 5 new tourist spots. "
+            )
+
+        if prompt:
+            prompt_text = f"Additional instructions: {main_location_text}{exclusion_text}{prompt}\n"
+        else:
+            prompt_text = (
+                f"Additional instructions: {main_location_text}{exclusion_text}\n"
+            )
+>>>>>>> dev
 
         return input_data, prompt_text
 
@@ -133,7 +160,11 @@ class TouristAgentService:
         return {
             "tourist_search": Agent(
                 role="Tourist Recommendation Expert",
+<<<<<<< HEAD
                 goal="Recommend at least 5 tourist spots based on the provided travel information.",
+=======
+                goal="Recommend tourist spots based on the provided travel information.",
+>>>>>>> dev
                 backstory="I have up-to-date knowledge about popular tourist destinations.",
                 tools=[self.web_search_tool],
                 llm=self.llm,
@@ -198,6 +229,7 @@ class TouristAgentService:
 
         return [task1, task2]
 
+    @time_check
     async def create_tourist_plan(
         self, input_data: dict, prompt: Optional[str] = None
     ) -> dict:
@@ -237,7 +269,11 @@ class TouristAgentService:
             logger.error("Error processing result: %s", e)
             spots_data = {"spots": []}
 
+<<<<<<< HEAD
         # Deduplication logic (inclusion of new spots only)
+=======
+        # Deduplication logic
+>>>>>>> dev
         existing_spot_names = [
             spot.get("kor_name", "") for spot in input_data.get("existing_spots", [])
         ]
@@ -247,6 +283,70 @@ class TouristAgentService:
             if spot.get("kor_name", "") not in existing_spot_names
         ]
         spots_data["spots"] = unique_spots
+<<<<<<< HEAD
 
         # Continue with processing (map, Kakao info, etc.)
         return spots_data
+=======
+
+        # Calculate total days from start_date to end_date
+        try:
+            start_date = datetime.strptime(input_data.get("start_date", ""), "%Y-%m-%d")
+            end_date = datetime.strptime(input_data.get("end_date", ""), "%Y-%m-%d")
+            total_days = (end_date - start_date).days + 1
+            if total_days < 1:
+                total_days = 1
+        except Exception:
+            total_days = 1
+
+        # Update each spot with Kakao map info and day_x in parallel using asyncio.gather
+        spots = spots_data.get("spots", [])
+        queries = [
+            f"{spot.get('kor_name', '')} {input_data.get('main_location', '')}"
+            for spot in spots
+        ]
+        kakao_results = await asyncio.gather(
+            *(get_kakao_location_info(query) for query in queries)
+        )
+        for idx, (spot, (new_lat, new_lon, new_address)) in enumerate(
+            zip(spots, kakao_results)
+        ):
+            spot["latitude"] = new_lat
+            spot["longitude"] = new_lon
+            if new_address:
+                spot["address"] = new_address
+            if (
+                new_lat is not None
+                and new_lon is not None
+                and new_lat != 0.0
+                and new_lon != 0.0
+            ):
+                spot["map_url"] = (
+                    f"https://map.kakao.com/link/map/{spot.get('kor_name', '')},{new_lat},{new_lon}"
+                )
+            if not spot.get("day_x") or spot.get("day_x") == 0:
+                spot["day_x"] = (idx % total_days) + 1
+
+        plan_info = {
+            "main_location": input_data.get("main_location", ""),
+            "start_date": input_data.get("start_date", ""),
+            "end_date": input_data.get("end_date", ""),
+            "ages": input_data.get("ages", ""),
+            "companion_count": (
+                sum(
+                    companion.get("count", 0)
+                    for companion in input_data.get("companion_count", [])
+                )
+                if isinstance(input_data.get("companion_count"), list)
+                else 0
+            ),
+            "concepts": ", ".join(input_data.get("concepts", [])),
+            "created_at": datetime.now().strftime("%Y-%m-%d"),
+            "updated_at": datetime.now().strftime("%Y-%m-%d"),
+        }
+        return {
+            "message": "Tourist recommendations processed successfully.",
+            "plan": plan_info,
+            "spots": spots_data.get("spots", []),
+        }
+>>>>>>> dev

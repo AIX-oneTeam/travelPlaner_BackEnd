@@ -170,4 +170,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# fcm json file
 FCM_ADMIN.json
+
+messaging/*.json

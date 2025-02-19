@@ -4,11 +4,11 @@ from app.utils.serialize_time import serialize_time
 from app.repository.plans.plan_spots_repository import get_plan_spots
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+logger = logging.getLogger(__name__)
 
 async def find_plan_spots(plan_id: int, session: AsyncSession):
     plan_spots_with_spot_info = await get_plan_spots(plan_id, session)
     logging.debug(f"💡[ plan_spots_service ] plan_spots_with_spot_info : {plan_spots_with_spot_info}")
-    print(f"💡[ plan_spots_service ] plan_spots_with_spot_info : {plan_spots_with_spot_info}")
     
     #  day_x와 order 순으로 정렬
     plan_spots_with_spot_info["detail"].sort(

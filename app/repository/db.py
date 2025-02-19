@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from typing import AsyncGenerator
 from .redis_client import init_redis, close_redis
 # 환경 변수 로드
-print("--------------------db.py---------------------")
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -28,36 +31,37 @@ async_session_maker = async_sessionmaker(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Starting application...")
+    logger.info("애플리케이션 시작")
     
     # 데이터베이스 연결 초기화
     app.state.engine = engine
 
     # Redis 초기화
     await init_redis(app)
+    logger.info("Redis 연결 완료")
     
     try:
         yield
     finally:
-        print("Shutting down application...")
+        logger.info("애플리케이션 종료 중...")
         await engine.dispose()
-        print("Database connection closed.")
+        logger.info("데이터베이스 연결 종료 완료")
         await close_redis()
-        print("Redis connections closed.")
+        logger.info("Redis 연결 종료 완료")
 
 # 의존성 주입을 위한 비동기 세션 제공자
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         try:
-            logging.info(f"💡[ 세션 생성 ] {session}")
+            logger.info(f"💡[ 세션 생성 ] {session}")
             yield session
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logging.error(f"Database error: {str(e)}")
+            logger.error(f"Database error: {str(e)}")
             raise
         finally:
-            logging.info(f"💡[ 세션 종료 ] {session}")
+            logger.info(f"💡[ 세션 종료 ] {session}")
             await session.close()
 
 # 동기식 연결
@@ -86,11 +90,11 @@ async def init_table_by_SQLModel():
     async with engine.begin() as conn:
         # 기존 테이블 삭제
         await conn.run_sync(SQLModel.metadata.drop_all)
-        print("테이블을 삭제했습니다.")
+        logger.info("테이블을 삭제했습니다.")
         
         # 새 테이블 생성
         await conn.run_sync(SQLModel.metadata.create_all)
-        print("테이블을 생성했습니다.")
+        logger.info("테이블을 생성했습니다.")
         
         # CSV 데이터 삽입
         try:
@@ -104,18 +108,18 @@ async def init_table_by_SQLModel():
                     index=False
                 )
             )
-            print(f"총 {len(data)}개의 행 삽입 완료.")
+            logger.info(f"총 {len(data)}개의 행 삽입 완료.")
         except Exception as e:
-            print(f"CSV 데이터 삽입 실패: {e}")
+            logger.error(f"CSV 데이터 삽입 실패: {e}")
 
 # 테이블 존재 여부 확인
 async def check_tables():
-    print("---------메타데이터 테이블 목록---------")
-    print(SQLModel.metadata.tables)
-    print("--------------------------------------")
+    logger.info("---------메타데이터 테이블 목록---------")
+    logger.info(SQLModel.metadata.tables)
+    logger.info("--------------------------------------")
 
 if __name__ == "__main__":
-    print("MySQL 연결 테스트를 시작합니다...")
+    logger.info("MySQL 연결 테스트를 시작합니다...")
     try:
 
         load_dotenv()
@@ -123,13 +127,13 @@ if __name__ == "__main__":
         engine = create_engine(DATABASE_URL, echo=True)
         # 엔진으로 직접 연결 테스트
         with engine.connect() as connection:
-            print("MySQL 연결 성공!")
+            logger.info("MySQL 연결 성공!")
 
-            print("테이블 목록을 출력합니다.")
+            logger.info("테이블 목록을 출력합니다.")
             result = connection.execute(text("SHOW TABLES;"))
 
             for row in result:
-                print(row)
+                logger.info(row)
     except Exception as e:
-        print(f"MySQL 연결 실패: {e}")
+        logger.error(f"MySQL 연결 실패: {e}")
 

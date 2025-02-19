@@ -18,11 +18,7 @@ from app.repository.plans.plan_repository import delete_plan
 import logging
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-
-logging.basicConfig()
-logging.getLogger("sqlalchemy.engine").setLevel(logging.DEBUG)
-logging.getLogger("sqlalchemy.pool").setLevel(logging.DEBUG)
-logging.getLogger("sqlalchemy.orm").setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -57,13 +53,14 @@ async def create_plan(request_data: PlanRequest, request: Request, session: Asyn
     try:
         # 0. memberid 획득
         if(request.state.user is not None):
-            print("request.state.user : ", request.state.user)
+            logger.info("request.state.user : ", request.state.user)
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
         else:
-            print("[ plan_router ] request_data.email : ", request_data.email)
-            member_id = await get_memberId_by_email(request_data.email, session)
-            print("[ plan_router ] member_id : ", member_id)
+            logger.info("[ plan_router ] request_data.email : ", request_data.email)
+            member_id = await get_memberId_by_email(email=request_data.email, session=session)
+            logger.info("[ plan_router ] member_id : ", member_id)
 
         # 1. 일정 저장
         plan_id = await reg_plan(request_data.plan, member_id, session)
@@ -85,13 +82,13 @@ async def read_member_plans(request: Request, session: AsyncSession = Depends(ge
     try:
         if(request.state.user is not None):
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
-            print("💡[ plan_router ] member_id : ", member_id)
-            
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
+            logger.info("💡[ plan_router ] member_id : ", member_id)
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         plans = await find_member_plans(member_id, session)
-        print("💡[ plan_router ] plans : ", plans)
+        logger.info("💡[ plan_router ] plans : ", plans)
 
         return SuccessResponse(data=plans, message="멤버의 일정 정보가 성공적으로 조회되었습니다.")
     except Exception as e:
@@ -103,18 +100,19 @@ async def update_plan(plan_id: int, request_data: PlanRequest, request: Request,
     try:
         if(request.state.user is not None):
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
-            print("💡[ plan_router ] member_id : ", member_id)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
+            logger.info("💡[ plan_router ] member_id : ", member_id)
         # local 테스트용
         elif(request_data.email is not None):
-            member_id = await get_memberId_by_email(request_data.email, session)
-            print("💡[ plan_router ] member_id : ", member_id)
+            member_id = await get_memberId_by_email(email=request_data.email, session=session)
+            logger.info("💡[ plan_router ] member_id : ", member_id)
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         
         # 1. 소유자 확인
         plan = await find_plan(plan_id, session)
-        print("💡[ plan_router ] plan : ", plan)
+        logger.info("💡[ plan_router ] plan : ", plan)
         if(plan.member_id != member_id):
             return ErrorResponse(message="일정 수정 권한이 없습니다.")
         
@@ -124,9 +122,9 @@ async def update_plan(plan_id: int, request_data: PlanRequest, request: Request,
         
         # 3. 장소 삭제
         plan_spots = await find_plan_spots(plan_id, session)
-        print("💡[ plan_router ] plan_spots : ", plan_spots)
+        logger.info("💡[ plan_router ] plan_spots : ", plan_spots)
         for spot in plan_spots["detail"]:
-            print("💡[ plan_router ] spot : ", spot)
+            logger.info("💡[ plan_router ] spot : ", spot)
             await delete_spot(spot["spot"]["id"], session)
 
         # 4. 일정 삭제 -
@@ -142,13 +140,12 @@ async def update_plan(plan_id: int, request_data: PlanRequest, request: Request,
         # 6. 임시 저장 체크리스트 새로운 plan_id로 업데이트
         if len(temp_checklist)>0:
             result = await save_checklist_service(plan_id, temp_checklist, session)
-        print(f"======================저장된 체크리스트 ======={result}")    
-        await session.commit() 
+            logger.info(f"======================저장된 체크리스트 ======={result}")    
+            await session.commit() 
         
         return SuccessResponse(data={"plan_id": plan_id}, message="일정이 성공적으로 수정되었습니다.")
     except Exception as e:
-        logging.debug(f"💡logger: 일정 수정 오류: {e}")
-        print("💡[ plan_router ] error : ", e)
+        logger.debug(f"💡logger: 일정 수정 오류: {e}")
         return ErrorResponse(message="일정 수정에 실패했습니다.", error_detail=e)
 
 
@@ -160,7 +157,8 @@ async def erase_plan(plan_id: int, request: Request, session: AsyncSession = Dep
     try:
         if(request.state.user is not None):
             member_email = request.state.user.get("email")
-            member_id = await get_memberId_by_email(member_email, session)
+            provider = request.state.user.get("provider")
+            member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
         else:
             return ErrorResponse(message="로그인이 필요합니다.")
         
@@ -174,9 +172,9 @@ async def erase_plan(plan_id: int, request: Request, session: AsyncSession = Dep
         
         #3. 장소 삭제
         plan_spots = await find_plan_spots(plan_id, session)
-        print("💡[ plan_router ] plan_spots : ", plan_spots)
+        logger.info("💡[ plan_router ] plan_spots : ", plan_spots)
         for spot in plan_spots["detail"]:
-            print("💡[ plan_router ] spot : ", spot)
+            logger.info("💡[ plan_router ] spot : ", spot)
             await delete_spot(spot["spot"]["id"], session)
 
         #4. 일정 삭제
@@ -184,7 +182,7 @@ async def erase_plan(plan_id: int, request: Request, session: AsyncSession = Dep
 
         return SuccessResponse(message="일정이 성공적으로 삭제되었습니다.")
     except Exception as e:
-        logging.debug(f"💡logger: 일정 삭제 오류: {e}")
+        logger.debug(f"💡logger: 일정 삭제 오류: {e}")
         return ErrorResponse(message="일정 삭제에 실패했습니다.", error_detail=e)
 
 
