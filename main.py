@@ -202,7 +202,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.get("/")
 async def root():
     # 데이터베이스 초기화
-    # await init_table_by_SQLModel()
+    await init_table_by_SQLModel()
     return HTMLResponse(
         """
         <html lang="ko">

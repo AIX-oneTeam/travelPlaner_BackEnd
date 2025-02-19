@@ -12,6 +12,9 @@ class AdministrativeDivision(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     city_province: str = Field(max_length=50)
     city_county: str = Field(max_length=50)
+    x_position: int = Field(max_length=10)
+    y_position: int = Field(max_length=10)
+
 
 class Member(SQLModel, table=True):
     __tablename__ = "member"
