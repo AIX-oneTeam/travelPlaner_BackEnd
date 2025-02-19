@@ -1,9 +1,10 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.exceptions import HTTPException, RequestValidationError
+from huggingface_hub import get_session
 
 from app.repository.db import lifespan
 from app.repository.db import init_table_by_SQLModel
@@ -23,6 +24,7 @@ from app.routers.agents.site_agent_router import router as site_agent_router
 from app.routers.agents.cafe_agent_router import router as cafe_router
 from app.routers.chceklists.checklist_router import router as checklist_router
 from app.routers.redis_test import router as redis_test_router
+from sqlmodel.ext.asyncio.session import AsyncSession
 import os
 from dotenv import load_dotenv
 import logging
@@ -97,6 +99,10 @@ async def jwt_auth_middleware(request: Request, call_next):
             try:
                 logger.info("💡액세스 토큰 없음, 리프레시 토큰으로 재발급 시도")
                 new_access_token = await refresh_access_token(refresh_token)
+                logger.info(f"💡새로운 액세스 토큰: {new_access_token}")
+                # 새로운 액세스 토큰 요청에 저장
+                request.state.user = decode_jwt(new_access_token)
+
                 response = await call_next(request)
                 response.set_cookie(
                     key="access_token",
@@ -110,6 +116,7 @@ async def jwt_auth_middleware(request: Request, call_next):
             except Exception as e:
                 logger.warning(f"💡리프레시 토큰으로 재발급 실패 다시 로그인 해주세요 {e}")
                 response = await call_next(request)
+                # 잘못된 토큰 삭제
                 response.delete_cookie(key="access_token", secure=True, samesite="None", httponly=True)
                 response.delete_cookie(key="refresh_token", secure=True, samesite="None", httponly=True)
                 request.state.user = None
@@ -140,6 +147,9 @@ async def jwt_auth_middleware(request: Request, call_next):
             try:
                 logger.info("리프레시 토큰으로 액세스 토큰 재발급 시도")
                 new_access_token = await refresh_access_token(refresh_token)
+                logger.info(f"💡새로운 액세스 토큰: {new_access_token}")
+                # 새로운 액세스 토큰 요청에 저장
+                request.state.user = decode_jwt(new_access_token)
                 response = await call_next(request)
                 response.set_cookie(
                     key="access_token",
@@ -153,10 +163,11 @@ async def jwt_auth_middleware(request: Request, call_next):
 
             except Exception as e:
                 # 리프레시 토큰 갱신 실패
-                logger.warning("💡리프레시 토큰 갱신 실패")
+                logger.warning(f"💡리프레시 토큰으로 재발급 실패 다시 로그인 해주세요 {e}")
                 response = await call_next(request)
-                response.delete_cookie("access_token")
-                response.delete_cookie("refresh_token")
+                # 잘못된 토큰 삭제
+                response.delete_cookie(key="access_token", secure=True, samesite="None", httponly=True)
+                response.delete_cookie(key="refresh_token", secure=True, samesite="None", httponly=True)
                 return response
 
     except Exception as e:

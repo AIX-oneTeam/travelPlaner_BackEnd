@@ -4,7 +4,7 @@ import httpx
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os
-from app.utils.oauths.jwt_utils import create_jwt_google, create_jwt_kakao, create_refresh_token, decode_jwt
+from app.utils.oauths.jwt_utils import create_jwt_google, create_refresh_token, decode_jwt
 
 
 # Load .env variables
@@ -56,7 +56,7 @@ async def handle_google_callback(code: str, state: str):
         print("access_token_google", access_token_google)
         print("refresh_token_google", refresh_token_google)
 
-        return ({
+        return {
             "email": user_info.get("email"),
             "nickname": user_info.get("name"),
             "profile_url": user_info.get("picture"),
@@ -64,7 +64,7 @@ async def handle_google_callback(code: str, state: str):
             "access_token": access_token_google,
             "refresh_token": refresh_token_google
             }
-        )
+        
 
     except httpx.HTTPStatusError as e:
         raise HTTPException(

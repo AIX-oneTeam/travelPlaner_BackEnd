@@ -2,7 +2,9 @@ import os
 import httpx
 from dotenv import load_dotenv
 from app.utils.oauths.jwt_utils import create_jwt_kakao, create_refresh_token, decode_jwt
+import logging
 
+logger = logging.getLogger(__name__)
 
 # .env 파일 로드
 load_dotenv()
@@ -50,9 +52,6 @@ async def fetch_user_info(access_token: str) -> dict:
     :param access_token: 카카오 액세스 토큰
     :return: 사용자 정보 (dict)
     """
-    print("---------------------------------------")
-    print("start fetch_user_info")
-    print("---------------------------------------")
     user_info_url = "https://kapi.kakao.com/v2/user/me"
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -79,6 +78,7 @@ async def handle_kakao_callback(code: str, state:str) -> dict:
 
         # 사용자 정보 받기
         user_info = await fetch_user_info(access_token)
+        logger.info(f"[ kakao_oauth_service ] handle_kakao_callback() user_info : {user_info}")
 
         if not user_info:
             raise ValueError("Failed to get user info")
@@ -90,7 +90,7 @@ async def handle_kakao_callback(code: str, state:str) -> dict:
             raise jwt_error
         # Refresh 토큰 생성
         try:
-            refresh_token = create_refresh_token(provider="kakao", user_email=user_info.get("email"))
+            refresh_token = create_refresh_token(provider="kakao", user_email=user_info.get("kakao_account", {}).get("email"))
 
         except Exception as refresh_error:
             raise refresh_error

@@ -10,9 +10,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 router = APIRouter()
 
-# 저장소(메모리 기반 예제)
-REFRESH_TOKENS = {}  # 사용자 ID를 키로 하는 리프레시 토큰 저장소
-
 
 @router.get("/callback")
 async def naver_callback(code: str, state: str, response: Response, session: AsyncSession = Depends(get_async_session)):
@@ -20,9 +17,9 @@ async def naver_callback(code: str, state: str, response: Response, session: Asy
     네이버 인증 콜백 처리 및 JWT 쿠키 저장
     """
     try:
-        user_data, tokens = await handle_callback(code, state)
-        access_token = tokens["access_token"]
-        refresh_token = tokens["refresh_token"]
+        user_data = await handle_callback(code, state)
+        access_token = user_data["access_token"]
+        refresh_token = user_data["refresh_token"]
 
         # JWT를 쿠키에 저장
         response.set_cookie(
@@ -42,6 +39,9 @@ async def naver_callback(code: str, state: str, response: Response, session: Asy
         )
 
         if not await is_exist_member_by_email(user_data["email"], "naver", session):
+            print("---------------------------------------")
+            print("💡naver_user_data", user_data)
+            print("---------------------------------------")
             await save_member(Member(
                 email=user_data["email"],
                 name=user_data["nickname"],

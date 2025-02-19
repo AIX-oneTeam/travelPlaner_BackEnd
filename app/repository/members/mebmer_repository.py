@@ -48,6 +48,7 @@ async def get_member_by_email_and_provider(email: str, provider: str, session: A
         query = select(Member).where((Member.email == email) & (Member.oauth == provider))
         result = await session.exec(query)
         member = result.first()
+        logger.info(f"💡[ memberRepository ] get_member_by_email_and_provider() member : {member}")
         return member
     except Exception as e:
         logger.error(f"[ memberRepository ] get_member_by_email_and_provider() 에러 : {e}")

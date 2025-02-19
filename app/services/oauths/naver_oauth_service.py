@@ -2,6 +2,7 @@ import secrets
 import httpx
 import os
 import dotenv
+import logging
 
 from app.utils.oauths.jwt_utils import create_refresh_token
 
@@ -13,6 +14,9 @@ NAVER_PROFILE_URL = "https://openapi.naver.com/v1/nid/me"
 NAVER_CLIENT_ID: str = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET: str = os.getenv("NAVER_CLIENT_SECRET")
 NAVER_REDIRECT_URI: str = os.getenv("NAVER_REDIRECT_URI")
+
+logging.getLogger("__name__").setLevel(logging.INFO)
+
 
 async def get_naver_access_token(code: str, state: str) -> dict:
     """
@@ -30,7 +34,8 @@ async def get_naver_access_token(code: str, state: str) -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.post(NAVER_TOKEN_URL, params=params)
         response.raise_for_status()
-        return response.json()
+        print("naver access token response", response.json())
+        return response.json() 
 
 async def get_naver_user_profile(access_token: str) -> dict:
     """
@@ -41,6 +46,7 @@ async def get_naver_user_profile(access_token: str) -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.get(NAVER_PROFILE_URL, headers=headers)
         response.raise_for_status()
+        logging.info("💡naver_user_profile", response.json())
         return response.json()
 
 
@@ -58,7 +64,7 @@ def get_login_url() -> str:
     )
 
 
-async def handle_callback(code: str, state: str) -> tuple:
+async def handle_callback(code: str, state: str) -> dict:
     """
     네이버 콜백 처리 및 사용자 정보 가져오기.
     액세스 토큰과 리프레시 토큰을 반환하고,
@@ -75,17 +81,16 @@ async def handle_callback(code: str, state: str) -> tuple:
     # 사용자 정보 가져오기
     user_profile = await get_naver_user_profile(access_token)
     print("---------------------------------------")
-    print("user_profile", user_profile)
+    print("💡naver_user_profile", user_profile)
     print("---------------------------------------")
 
     # 사용자 정보와 토큰 반환
-    return (
-        {
+    return {
             "nickname": user_profile.get("response", {}).get("name"),
             "email": user_profile.get("response", {}).get("email"),
             "profile_url": user_profile.get("response", {}).get("profile_image"),
             "roles": ["USER"],
             "access_token": access_token,
             "refresh_token": refresh_token
-        },
-    )
+        }
+    
