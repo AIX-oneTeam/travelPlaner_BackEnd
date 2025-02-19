@@ -36,7 +36,7 @@ async def save_cafe_info(cafe_data_list: dict, redis_client:Redis):
         error_details = traceback.format_exc()
         print(f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {error_details}")
         return f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {str(e)}"
-            
+                   
 async def get_cafes_by_tag(tag: str, redis_client: Redis):
     """
     특정 태그(지역 또는 키워드)에 해당하는 모든 카페 조회
