@@ -20,8 +20,8 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
-from app.services.agents.redis.restaurant_redis import RestaurantRedisService
 from redis.asyncio import Redis
+from app.services.agents.redis.spot_redis import SpotRedisService, SpotCategory
 from app.utils.time_check import time_check
 import logging
 
@@ -30,8 +30,6 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-
-# ------------------------- 맛집 추천 에이전트 -------------------------
 class RestaurantAgentService:
     """식당 추천을 위한 Agent 서비스"""
 
@@ -390,10 +388,10 @@ class RestaurantAgentService:
                     print("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
                     logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
                     try:
-                        redis_service = RestaurantRedisService(redis_client)
-                        redis_excluded_spots = await redis_service.get_excluded_restaurants(
+                        redis_service = SpotRedisService(redis_client)
+                        redis_excluded_spots = await redis_service.get_spots(
+                            category=SpotCategory.RESTAURANT,
                             main_location=input_data["main_location"],
-                            member_id=member_id,
                         )
                         if redis_excluded_spots:
                             existing_spot_names = redis_excluded_spots
@@ -462,7 +460,7 @@ class RestaurantAgentService:
             # 5. plan_id가 없는 경우, 결과를 Redis에 저장
             if not input_data.get("plan_id") and redis_client:
                 try:
-                    redis_service = RestaurantRedisService(redis_client)
+                    redis_service = SpotRedisService(redis_client)
                     restaurants_to_save = [
                         spot["kor_name"] for spot in processed_result.get("spots", [])
                     ]
@@ -473,10 +471,10 @@ class RestaurantAgentService:
                     print(f"✅ member_id: {member_id}")
                     print(f"⭐️ spots to save: {restaurants_to_save}")
 
-                    await redis_service.add_recommended_restaurants(
-                        restaurants=restaurants_to_save,
+                    await redis_service.add_spots(
+                        category=SpotCategory.RESTAURANT,
                         main_location=input_data["main_location"],
-                        member_id=member_id,
+                        spots=restaurants_to_save,
                     )
                 except Exception as e:
                     logger.error(f"Redis 저장 중 오류 발생: {e}")
