@@ -20,8 +20,8 @@ from app.services.agents.tools.restaurant_tool import (
     NaverImageSearchTool,
     KakaoLocalSearchTool,
 )
-from app.services.agents.redis.restaurant_redis import RestaurantRedisService
 from redis.asyncio import Redis
+from app.services.agents.redis.spot_redis import SpotRedisService, SpotCategory
 from app.utils.time_check import time_check
 import logging
 
@@ -30,8 +30,12 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# logging 아이콘
+# 🔵: 전달받은 데이터 유무 확인
+# 🟢: 새로 생성된 일정이거나 plan_id 없는 경우(redis)
+# 🟡: 기존 일정 수정(DB)
+# 🟣: redis
 
-# ------------------------- 맛집 추천 에이전트 -------------------------
 class RestaurantAgentService:
     """식당 추천을 위한 Agent 서비스"""
 
@@ -360,30 +364,51 @@ class RestaurantAgentService:
             "spots": spots_data.get("spots", []),
         }
 
-
     @time_check
     async def create_recommendation_restaurant(
         self,
         input_data: dict,
         prompt: Optional[str] = None,
         session: AsyncSession = None,
-        redis: Redis = None,
+        redis_client: Redis = None,
     ) -> dict:
         try:
             existing_spot_names = []
             member_id = None
 
-            # 공통: member_id 조회 (email로 조회)
+            # 데이터 유무 확인
+            print(f"🔵 email 존재: {bool(input_data.get('email'))}")
+            print(f"🔵 session 존재: {bool(session)}")
+            print(f"🔵 redis 존재: {bool(redis_client)}")
+            print(f"🔵 plan_id 없음: {not input_data.get('plan_id')}")
+
+            # member_id 조회 및 Redis/DB 로직 실행
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session)
-                logger.info(f"🟡 [조회된 member_id]: {member_id}")
-                print(f"🟡 [조회된 member_id]: {member_id}")
-                try:
-                    # plan_id 유무에 따라 다른 로직 적용
-                    if input_data.get("plan_id"):
-                        # 기존 일정 수정의 경우 - DB 로직 사용
-                        current_plan_id = input_data.get("plan_id")
+                print(f"🔵 member_id 조회됨: {bool(member_id)}")
 
+                if not input_data.get("plan_id"):
+                    # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
+                    logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
+                    try:
+                        redis_service = SpotRedisService(redis_client)
+                        redis_excluded_spots = await redis_service.get_spots(
+                            category=SpotCategory.RESTAURANT,
+                            main_location=input_data["main_location"],
+                        )
+                        if redis_excluded_spots:
+                            existing_spot_names = redis_excluded_spots
+                            logger.info(
+                                f"🟢 Redis에서 가져온 제외 식당 목록: {redis_excluded_spots}"
+                            )
+                    except Exception as e:
+                        logger.error(f"Redis 조회 중 오류 발생: {e}")
+                else:
+                    # 기존 일정 수정의 경우 - DB 사용
+                    current_plan_id = input_data.get("plan_id")
+                    print(f"🟡 current_plan_id: {current_plan_id}")
+
+                    try:
                         # 현재 plan이 해당 member의 것인지 확인
                         plan_spots_with_spot_info = await get_member_plan_spots(
                             current_plan_id, member_id, session
@@ -395,9 +420,9 @@ class RestaurantAgentService:
                                 plan_spots_with_spot_info = await get_member_plan_spots(
                                     latest_plan.id, member_id, session
                                 )
-                                logger.info(f"🟡 [최신 plan_id 사용]: {latest_plan.id}")
+                                logger.info(f"🟡 최신 plan_id 사용: {latest_plan.id}")
                         else:
-                            logger.info(f"🟡 [전달받은 plan_id 사용]: {current_plan_id}")
+                            logger.info(f"🟡 전달받은 plan_id 사용: {current_plan_id}")
 
                         if (
                             plan_spots_with_spot_info
@@ -408,37 +433,11 @@ class RestaurantAgentService:
                                 for item in plan_spots_with_spot_info["detail"]
                             ]
                             logger.info(
-                                f"🟡 [DB에서 가져온 기존 장소들]: {existing_spot_names}"
+                                f"🟡 DB에서 가져온 기존 장소들: {existing_spot_names}"
                             )
-
-                    else:
-                        # 새로 생성된 일정 수정의 경우 - Redis 사용
-                        print("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
-                        logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
-                        try:
-                            # 의존성 주입된 redis 인스턴스를 사용하여 서비스 생성
-                            redis_service = RestaurantRedisService(redis)
-                            redis_excluded_spots = (
-                                await redis_service.get_excluded_restaurants(
-                                    main_location=input_data["main_location"],
-                                    member_id=member_id,
-                                )
-                            )
-                            logger.info(
-                                f"디버그 - redis_excluded_spots: {redis_excluded_spots}"
-                            )
-                            if redis_excluded_spots:
-                                existing_spot_names = redis_excluded_spots
-                                logger.info(
-                                    f"🟢 [Redis에서 가져온 제외 식당 목록]: {redis_excluded_spots}"
-                                )
-                        except Exception as e:
-                            logger.error(f"Redis 조회 중 오류 발생: {e}")
-                            # Redis 오류 시 빈 리스트로 계속 진행
-
-                except Exception as e:
-                    logger.error(f"🟢 장소 조회 중 오류 발생: {e}")
-                    traceback.print_exc()
+                    except Exception as e:
+                        logger.error(f"🟡 DB 장소 조회 중 오류 발생: {e}")
+                        traceback.print_exc()
 
             # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
@@ -459,21 +458,25 @@ class RestaurantAgentService:
             # 4. 결과 실행 및 처리
             result = await crew.kickoff_async()
             processed_result = self._process_result(result, processed_input)
+            print(f"⭐️ processed_result: {processed_result}")
 
-            # 5. plan_id가 없는 경우에만 Redis에 저장
-            if not input_data.get("plan_id") and member_id:
+            # 5. plan_id가 없는 경우, 결과를 Redis에 저장
+            if not input_data.get("plan_id") and redis_client:
                 try:
-                    # 의존성 주입된 redis 인스턴스를 사용하여 서비스 생성
-                    redis_service = RestaurantRedisService(redis)
-                    restaurants_to_save = [spot["kor_name"] for spot in processed_result.get("spots", [])]
-                    await redis_service.add_recommended_restaurants(
-                        restaurants=restaurants_to_save,
+                    redis_service = SpotRedisService(redis_client)
+                    restaurants_to_save = [
+                        spot["kor_name"] for spot in processed_result.get("spots", [])
+                    ]
+                    print(f"🟢 spots to save: {restaurants_to_save}")
+
+                    await redis_service.add_spots(
+                        category=SpotCategory.RESTAURANT,
                         main_location=input_data["main_location"],
-                        member_id=member_id,
+                        spots=restaurants_to_save,
                     )
                 except Exception as e:
                     logger.error(f"Redis 저장 중 오류 발생: {e}")
-                    # Redis 저장 실패는 전체 프로세스에 영향을 주지 않도록 함
+                    traceback.print_exc()
 
             return processed_result
 
