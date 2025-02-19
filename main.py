@@ -23,6 +23,7 @@ from app.routers.agents.site_agent_router import router as site_agent_router
 from app.routers.agents.cafe_agent_router import router as cafe_router
 from app.routers.chceklists.checklist_router import router as checklist_router
 from app.routers.redis_test import router as redis_test_router
+from app.routers.voice_router import router as voice_router
 import os
 from dotenv import load_dotenv
 import logging
@@ -233,5 +234,6 @@ app.include_router(site_agent_router, prefix="/agents", tags=["agents"])
 app.include_router(cafe_router, prefix="/agents", tags=["agents"])
 app.include_router(checklist_router, prefix="/checklist", tags=["checklists"])
 app.include_router(redis_test_router, prefix="/redis", tags=["redis"])
+app.include_router(voice_router, prefix="/voice", tags=["voice"])
 
 
