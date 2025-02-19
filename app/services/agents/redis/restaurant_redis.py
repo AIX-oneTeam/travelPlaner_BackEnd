@@ -14,12 +14,12 @@ class RestaurantRedisService:
     # EXPIRATION_HOURS = 1  # 1시간 후 자동 삭제
     EXPIRATION_HOURS = 5 / 60
 
-    def __init__(self, redis: Redis):
+    def __init__(self, redis_client: Redis):
         """
         생성자에서 Redis 인스턴스를 주입받습니다.
         :param redis: 의존성 주입된 Redis 인스턴스
         """
-        self.redis = redis
+        self.redis = redis_client
 
     def _generate_key(self, member_id: Optional[int], main_location: str) -> str:
         """Redis 키 생성

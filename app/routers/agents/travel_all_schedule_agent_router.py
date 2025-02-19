@@ -72,7 +72,9 @@ async def generate_plan(
         # 각 외부 에이전트 호출 및 결과 집계
         if "restaurant" in agent_type:
             restaurant_service = RestaurantAgentService()
-            tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(input_dict)
+            tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(
+                input_dict, redis_client=redis_client
+            )
         if "site" in agent_type:
             site_agent_service = TouristAgentService()
             tasks["site"] = site_agent_service.create_tourist_plan(input_dict)
