@@ -91,8 +91,6 @@ class GeocodingTool(BaseTool):
     def _run(self, location: str) -> Dict:
         return asyncio.run(self._arun(location))
 
-
-# 2. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
 # 2. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
 class RestaurantBasicSearchTool(BaseTool):
     name: str = "RestaurantBasicSearchTool"
@@ -106,11 +104,11 @@ class RestaurantBasicSearchTool(BaseTool):
         end = datetime.strptime(end_date.split("T")[0], "%Y-%m-%d")
         days = (end - start).days + 1
 
-        # 1일 5개, 2일 8개, 3일 11개, 4일 14개...
+        # 1일 7개, 2일 10개, 3일 13개, 4일 16개...
         if days == 1:
-            return 5
+            return 7
         else:
-            return 5 + (days - 1) * 3
+            return 7 + (days - 1) * 3
 
     async def get_place_details(
         self, session: aiohttp.ClientSession, place_id: str
@@ -141,7 +139,7 @@ class RestaurantBasicSearchTool(BaseTool):
         coordinates: str,
         filter_rating: float,
         filter_reviews: int,
-        target_count: int,
+        remaining_count: int,
         collected_names: set,
         session: aiohttp.ClientSession,
     ) -> List[Dict]:
@@ -150,7 +148,7 @@ class RestaurantBasicSearchTool(BaseTool):
         lat, lng = coordinates.split(",")
 
         for keyword in keywords:
-            if len(collected) >= target_count:
+            if len(collected) >= remaining_count:
                 break
 
             simplified_keyword = keyword.split(" - ")[-1]
@@ -172,7 +170,7 @@ class RestaurantBasicSearchTool(BaseTool):
                 )
 
                 for place in results:
-                    if len(collected) >= target_count:
+                    if len(collected) >= remaining_count:
                         break
 
                     place_id = place.get("place_id")
@@ -189,8 +187,8 @@ class RestaurantBasicSearchTool(BaseTool):
 
                 next_page_token = data.get("next_page_token")
 
-                # 다음 페이지가 있다면 계속 검색
-                while next_page_token and len(collected) < target_count:
+                # 다음 페이지가 있고 목표 개수에 도달하지 않았을 때만 계속 검색
+                while next_page_token and len(collected) < remaining_count:
                     try:
                         await asyncio.sleep(3)  # next_page_token 유효 대기
                         params["pagetoken"] = next_page_token
@@ -202,7 +200,7 @@ class RestaurantBasicSearchTool(BaseTool):
                             )
 
                             for place in new_results:
-                                if len(collected) >= target_count:
+                                if len(collected) >= remaining_count:
                                     break
 
                                 place_id = place.get("place_id")
@@ -220,6 +218,10 @@ class RestaurantBasicSearchTool(BaseTool):
                                         collected_names.add(details["title"])
 
                             next_page_token = data.get("next_page_token")
+
+                            # 목표 개수 달성 시 즉시 종료
+                            if len(collected) >= remaining_count:
+                                break
                     except Exception as e:
                         logger.error(f"추가 페이지 요청 오류: {e}")
                         break
@@ -243,13 +245,16 @@ class RestaurantBasicSearchTool(BaseTool):
 
         async with aiohttp.ClientSession() as session:
             # 1단계: 대도시 기준 (전체 키워드로 검색)
-            logger.info("1단계 검색 시작 (평점 4.0 이상, 리뷰 500개 이상)")
+            remaining = target_count - len(collected_spots)
+            logger.info(
+                f"1단계 검색 시작 (평점 4.0 이상, 리뷰 500개 이상) - 목표: {remaining}개"
+            )
             collected = await self.search_with_filter(
                 search_keywords,
                 coordinates,
                 4.0,
                 500,
-                target_count,
+                remaining,
                 collected_names,
                 session,
             )
@@ -258,15 +263,16 @@ class RestaurantBasicSearchTool(BaseTool):
 
             # 목표량 미달시 2단계: 중소도시 기준
             if len(collected_spots) < target_count:
+                remaining = target_count - len(collected_spots)
                 logger.info(
-                    f"2단계 검색 시작 (평점 3.5 이상, 리뷰 200개 이상) - 목표까지 {target_count - len(collected_spots)}개 필요"
+                    f"2단계 검색 시작 (평점 3.5 이상, 리뷰 200개 이상) - 목표: {remaining}개"
                 )
                 collected = await self.search_with_filter(
                     search_keywords,
                     coordinates,
                     3.5,
                     200,
-                    target_count,
+                    remaining,
                     collected_names,
                     session,
                 )
@@ -275,15 +281,16 @@ class RestaurantBasicSearchTool(BaseTool):
 
             # 여전히 미달시 3단계: 외곽/지방 기준
             if len(collected_spots) < target_count:
+                remaining = target_count - len(collected_spots)
                 logger.info(
-                    f"3단계 검색 시작 (평점 3.3 이상, 리뷰 100개 이상) - 목표까지 {target_count - len(collected_spots)}개 필요"
+                    f"3단계 검색 시작 (평점 3.3 이상, 리뷰 100개 이상) - 목표: {remaining}개"
                 )
                 collected = await self.search_with_filter(
                     search_keywords,
                     coordinates,
                     3.3,
                     100,
-                    target_count,
+                    remaining,
                     collected_names,
                     session,
                 )
@@ -291,7 +298,7 @@ class RestaurantBasicSearchTool(BaseTool):
                 logger.info(f"3단계 검색 완료: 총 {len(collected_spots)}개 수집")
 
         logger.info(f"최종 수집된 맛집 수: {len(collected_spots)}")
-        return collected_spots[:target_count]
+        return collected_spots
 
     def _run(
         self,
