@@ -360,7 +360,6 @@ class RestaurantAgentService:
             "spots": spots_data.get("spots", []),
         }
 
-
     @time_check
     async def create_recommendation_restaurant(
         self,
@@ -397,7 +396,9 @@ class RestaurantAgentService:
                                 )
                                 logger.info(f"🟡 [최신 plan_id 사용]: {latest_plan.id}")
                         else:
-                            logger.info(f"🟡 [전달받은 plan_id 사용]: {current_plan_id}")
+                            logger.info(
+                                f"🟡 [전달받은 plan_id 사용]: {current_plan_id}"
+                            )
 
                         if (
                             plan_spots_with_spot_info
@@ -465,7 +466,9 @@ class RestaurantAgentService:
                 try:
                     # 의존성 주입된 redis 인스턴스를 사용하여 서비스 생성
                     redis_service = RestaurantRedisService(redis)
-                    restaurants_to_save = [spot["kor_name"] for spot in processed_result.get("spots", [])]
+                    restaurants_to_save = [
+                        spot["kor_name"] for spot in processed_result.get("spots", [])
+                    ]
                     await redis_service.add_recommended_restaurants(
                         restaurants=restaurants_to_save,
                         main_location=input_data["main_location"],

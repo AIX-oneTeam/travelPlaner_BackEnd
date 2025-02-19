@@ -1,311 +1,215 @@
-import os
-import json
-import asyncio
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple
-import aiohttp
-import logging
-import threading
-from crewai import Agent, Task, Crew, LLM
-from fastapi import HTTPException
+import traceback
+from crewai import Agent, Task, Crew, LLM, Process
 from app.dtos.spot_models import spots_pydantic
-from dotenv import load_dotenv
-from app.utils.time_check import time_check
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-KAKAO_API_KEY = os.getenv("KAKAO_API_KEY")
-
-
-REDIS_URL = os.getenv("REDIS_URL")
-
-# Redis 연결
-r = redis.from_url(REDIS_URL, decode_responses=True)
-
-# 테스트
-r.set("test", "value")
-print(r.get("test"))
-
-
-async def get_kakao_location_info(
-    query: str,
-) -> Tuple[Optional[float], Optional[float], Optional[str]]:
-    """
-    Calls the Kakao Keyword Search API with the given query and returns the latitude, longitude, and corrected address.
-    If valid information is not found, returns (None, None, None).
-    """
-    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-    headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
-    params = {"query": query}
-    try:
-        async with aiohttp.ClientSession() as client:
-            async with client.get(url, headers=headers, params=params) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                logger.info(f"[Kakao Keyword API Response] {data}")
-        documents = data.get("documents", [])
-        if documents:
-            result = documents[0]
-            if result.get("road_address"):
-                address_name = result["road_address"].get("address_name")
-                x = float(result["road_address"].get("x", 0.0))
-                y = float(result["road_address"].get("y", 0.0))
-            else:
-                address_name = result.get("address_name")
-                x = float(result.get("x", 0.0))
-                y = float(result.get("y", 0.0))
-            return y, x, address_name
-    except Exception as e:
-        logger.error(f"Kakao API Keyword Search Error: {e}")
-    return None, None, None
-
-
-# Import tool classes from site_tool module
+from app.utils.calculate_trip_days import calculate_trip_days
 from app.services.agents.tools.site_tool import (
     NaverTouristWebSearchTool,
     NaverTouristImageSearchTool,
+    NaverTouristReviewTool,
+    NaverTouristBusinessInfoTool,
 )
+from typing import Dict, Optional
+import os
+from dotenv import load_dotenv
+from app.utils.time_check import time_check
+from redis.asyncio import Redis
+import json
+
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+
+async def save_tourist_info(tourist_data_list: dict, redis_client: Redis):
+    try:
+        ONE_DAY_IN_SECONDS = 86400
+        for tourist_data in tourist_data_list.get("spots", []):
+            tourist_id = tourist_data["placeId"]
+            location = tourist_data["main_location"]
+            await redis_client.set(
+                f"tourist:{tourist_id}", json.dumps(tourist_data), ex=ONE_DAY_IN_SECONDS
+            )
+            await redis_client.sadd(f"tag:{location}", tourist_id)
+            await redis_client.expire(f"tag:{location}", ONE_DAY_IN_SECONDS)
+        return "[TouristAgentService] - save_tourist_info: 성공적으로 저장되었습니다."
+    except Exception as e:
+        error_details = traceback.format_exc()
+        return (
+            f"[TouristAgentService] - save_tourist_info : 저장 중 오류 발생: {str(e)}"
+        )
+
+
+async def get_tourists_by_tag(tag: str, redis_client: Redis):
+    tourist_ids = await redis_client.smembers(f"tag:{tag}")
+    if not tourist_ids:
+        return None
+    tourists = []
+    for tourist_id in tourist_ids:
+        tourist_data = await redis_client.get(f"tourist:{tourist_id}")
+        if tourist_data:
+            tourists.append(json.loads(tourist_data))
+    return tourists
 
 
 class TouristAgentService:
-    """Tourist recommendation service using CrewAI agents"""
-
     _instance = None
-    _lock = threading.Lock()
 
     def __new__(cls):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(TouristAgentService, cls).__new__(cls)
-                cls._instance.initialize()
+        if cls._instance is None:
+            cls._instance = super(TouristAgentService, cls).__new__(cls)
+            cls._instance.initialize()
         return cls._instance
 
     def initialize(self):
-        """Initialize the service"""
-        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
-        self.web_search_tool = NaverTouristWebSearchTool()
-        self.image_search_tool = NaverTouristImageSearchTool()
+        self.llm = LLM(
+            model="gpt-4o-mini",
+            api_key=OPENAI_API_KEY,
+            temperature=0,
+            max_tokens=4000,
+        )
+        self.get_tourist_list_tool = NaverTouristWebSearchTool()
+        self.get_tourist_info_tool = NaverTouristImageSearchTool()
+        self.get_tourist_review_tool = NaverTouristReviewTool()
+        self.get_tourist_business_info_tool = NaverTouristBusinessInfoTool()
         self.agents = self._create_agents()
+        self.tasks = self._create_tasks()
 
-    def _process_input(
-        self, input_data: dict, prompt: Optional[str] = None
-    ) -> Tuple[dict, str]:
-        logger.info(f"[Input Data] {input_data}")
-        logger.info(f"[Prompt] {prompt}")
-
-        plan_id = input_data.get("plan_id")
-        if not plan_id:
-            raise HTTPException(status_code=400, detail="plan_id must be provided")
-
-        # Redis에서 기존 추천 장소 확인
-        existing_spots = r.smembers(f"plan:{plan_id}:recommended_spots")
-        if existing_spots:
-            # Redis에서 가져온 값은 set이므로 list로 변환하여 사용
-            existing_spots = {spot.decode("utf-8") for spot in existing_spots}
-            logger.info(f"[Existing spots in plan {plan_id}]: {existing_spots}")
-        else:
-            existing_spots = []
-
-        if "concepts" not in input_data or not isinstance(input_data["concepts"], list):
-            input_data["concepts"] = []
-
-        main_location_text = f"Location: {input_data.get('main_location')}. "
-
-        exclusion_text = (
-            f"Please exclude these spots: {', '.join(existing_spots)}. "
-            if existing_spots
-            else ""
+        self.tasks["researcher_task"].context = [self.tasks["collector_task"]]
+        self.tasks["researcher_detail_task"].context = [self.tasks["researcher_task"]]
+        self.tasks["reviewer_task"].context = [self.tasks["researcher_detail_task"]]
+        self.tasks["decider_task"].context = [self.tasks["reviewer_task"]]
+        self.draft_crew = Crew(
+            agents=[self.agents["decider"]],
+            tasks=[self.tasks["decider_task"]],
+            verbose=True,
         )
-
-        prompt_text = (
-            f"{main_location_text}{exclusion_text}{prompt} "
-            if prompt
-            else f"{main_location_text}{exclusion_text}"
+        self.crew = Crew(
+            agents=list(self.agents.values()),
+            tasks=list(self.tasks.values()),
+            process=Process.sequential,
+            verbose=True,
         )
-
-        return input_data, prompt_text
 
     def _create_agents(self) -> Dict[str, Agent]:
-        """Create agents with instructions in English."""
         return {
-            "tourist_search": Agent(
-                role="Tourist Recommendation Expert",
-                goal="Recommend at least 5 tourist spots based on the provided travel information.",
-                backstory="I have up-to-date knowledge about popular tourist destinations.",
-                tools=[self.web_search_tool],
+            "collector": Agent(
+                role="관광지 리스트 생성 전문가",
+                goal="포스팅된 횟수가 많은 관광지부터 내림차순으로 정렬해주세요",
+                backstory="포스팅된 횟수가 많은 관광지부터 내림차순으로 정렬해주세요",
+                tools=[self.get_tourist_list_tool],
+                allow_delegation=False,
+                max_iter=1,
                 llm=self.llm,
                 verbose=True,
-                async_execution=True,
+                stop_on_failure=True,
             ),
-            "image_update": Agent(
-                role="Image Search Specialist",
-                goal="For each recommended tourist spot, use its 'kor_name' to fetch the latest image and update the 'image_url' field.",
-                backstory="I provide representative images for tourist spots using the Naver Image Search API.",
-                tools=[self.image_search_tool],
+            "researcher": Agent(
+                role="관광지 기본 정보 수집 및 위치 검증가",
+                goal="관광지의 기본 정보를 수집하고 고객의 여행 지역에 위치하지 않은 관광지는 삭제합니다.",
+                backstory="블로그에서 관광지의 기본 정보를 수집하고, 고객의 여행 지역에 위치하지 않은 관광지는 삭제해주세요.",
+                tools=[self.get_tourist_info_tool],
+                allow_delegation=False,
+                max_iter=1,
                 llm=self.llm,
                 verbose=True,
-                async_execution=True,
+                stop_on_failure=True,
+            ),
+            "researcher_detail": Agent(
+                role="관광지 상세 정보 수집 및 업종 검증가",
+                goal="관광지의 상세 정보를 수집하고 업종에 관광지 또는 여행지가 포함되지 않은 장소는 삭제합니다.",
+                backstory="관광지의 상세 정보를 수집하고, 업종에 관광지 또는 여행지가 포함되지 않은 장소는 삭제해주세요.",
+                tools=[self.get_tourist_business_info_tool],
+                allow_delegation=False,
+                max_iter=1,
+                llm=self.llm,
+                verbose=True,
+                stop_on_failure=True,
+            ),
+            "reviewer": Agent(
+                role="관광지 리뷰 분석가",
+                goal="관광지의 리뷰를 분석하고, 관광지의 주요 특징을 추출합니다.",
+                backstory="관광지의 최신 후기를 읽고, 관광지의 주요 특징을 분석합니다.",
+                tools=[self.get_tourist_review_tool],
+                allow_delegation=False,
+                max_iter=1,
+                llm=self.llm,
+                verbose=True,
+                stop_on_failure=True,
+            ),
+            "decider": Agent(
+                role="고객의 요구사항을 반영한 관광지 선정",
+                goal="고객의 여행지에서 인기있고, 고객의 선호도를 반영한 관광지를 선정합니다.",
+                backstory="고객에게 가장 적합한 관광지를 선별하고 추천해줍니다.",
+                allow_delegation=False,
+                max_iter=1,
+                llm=self.llm,
+                verbose=True,
+                stop_on_failure=True,
             ),
         }
 
-    def _create_tasks(self, input_data: dict, prompt_text: str) -> List[Task]:
-        json_schema_prompt = (
-            "{\n"
-            '  "kor_name": string,\n'
-            '  "eng_name": string or null,\n'
-            '  "address": string,\n'
-            '  "url": string or null,\n'
-            '  "image_url": string,\n'
-            '  "map_url": string,\n'
-            '  "spot_category": number,\n'
-            '  "phone_number": string or null,\n'
-            '  "business_status": boolean or null,\n'
-            '  "business_hours": string or null,\n'
-            '  "spot_time": string or null\n'
-            "}"
-        )
-
-        task1_description = (
-            f"Recommend at least 5 tourist spots in the area of '{input_data['main_location']}' that satisfy the following requirements:\n"
-            "Requirements:\n"
-            f"- Travel period: from {input_data['start_date']} to {input_data['end_date']}\n"
-            f"- Age group: {input_data['ages']}\n"
-            f"- Number of companions: {input_data['companion_count']}\n"
-            f"- Travel concepts: {', '.join(input_data['concepts'])}\n"
-            f"{prompt_text}\n"
-            "Each tourist spot must strictly follow the following JSON object format:\n"
-            f"{json_schema_prompt}\n"
-            "Note: The result must be a pure JSON array (e.g., [ {{...}}, {{...}}, ... ]) without any extra text."
-        )
-        task1 = Task(
-            description=task1_description,
-            agent=self.agents["tourist_search"],
-            expected_output="Tourist recommendation results (JSON array)",
-        )
-
-        task2 = Task(
-            description=(
-                "For each recommended tourist spot, use its 'kor_name' to search for the latest image, "
-                "and update the 'image_url' field accordingly."
+    def _create_tasks(self) -> Dict[str, Task]:
+        return {
+            "collector_task": Task(
+                description="관광지 리스트를 수집하고 기본 정보를 추출합니다.",
+                expected_output="관광지 리스트 (JSON array) with basic info",
+                agent=self.agents["collector"],
             ),
-            agent=self.agents["image_update"],
-            expected_output="Tourist image update results (JSON array)",
-            output_pydantic=spots_pydantic,
-        )
-
-        return [task1, task2]
+            "researcher_task": Task(
+                description="수집된 관광지 정보를 위치 및 카테고리 기반으로 필터링합니다.",
+                expected_output="필터링된 관광지 리스트 (JSON array)",
+                agent=self.agents["researcher"],
+            ),
+            "researcher_detail_task": Task(
+                description="세부 정보를 수집하고 업종 필터링을 통해 관광지를 최종적으로 정리합니다.",
+                expected_output="세부 정보가 반영된 관광지 리스트 (JSON array)",
+                agent=self.agents["researcher_detail"],
+            ),
+            "reviewer_task": Task(
+                description="관광지 리뷰를 분석하고 특징을 추출하여 추천에 반영합니다.",
+                expected_output="관광지 리뷰 분석 결과 (JSON array)",
+                agent=self.agents["reviewer"],
+            ),
+            "decider_task": Task(
+                description="고객의 요구에 맞는 관광지를 추천합니다.",
+                expected_output="최종 관광지 추천 결과 (JSON array)",
+                agent=self.agents["decider"],
+            ),
+        }
 
     @time_check
     async def create_tourist_plan(
-        self, input_data: dict, prompt: Optional[str] = None
+        self, input_data: dict, redis_client: Redis = None
     ) -> dict:
-        """
-        Execute the tourist recommendation workflow using the original English prompt.
-        """
-        try:
-            processed_input, prompt_text = self._process_input(input_data, prompt)
-            tasks = self._create_tasks(processed_input, prompt_text)
-            crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True)
-            result = await crew.kickoff_async()
-            return await self._process_result(result, processed_input)
-        except Exception as e:
-            logger.exception("Error creating tourist plan")
-            raise HTTPException(status_code=500, detail=str(e))
+        if input_data is None:
+            raise ValueError("[TouristAgent] 에러 - input_data이 없습니다.")
 
-    async def _process_result(self, result, input_data: dict) -> dict:
-        """
-        Post-process the result: convert the final task result using the Pydantic model,
-        and update the map URL using Kakao API based on a combined query of the tourist spot name and main location.
-        """
-        try:
-            if hasattr(result, "tasks_output") and result.tasks_output:
-                final_task_output = result.tasks_output[-1]
-                if (
-                    hasattr(final_task_output, "pydantic")
-                    and final_task_output.pydantic
-                ):
-                    spots_data = final_task_output.pydantic.model_dump()
-                elif hasattr(final_task_output, "raw") and final_task_output.raw:
-                    spots_data = json.loads(final_task_output.raw)
-                else:
-                    spots_data = {"spots": []}
-            else:
-                spots_data = {"spots": []}
-        except Exception as e:
-            logger.error("Error processing result: %s", e)
-            spots_data = {"spots": []}
-
-        # Deduplication logic
-        existing_spot_names = [
-            spot.get("kor_name", "") for spot in input_data.get("existing_spots", [])
-        ]
-        unique_spots = [
-            spot
-            for spot in spots_data.get("spots", [])
-            if spot.get("kor_name", "") not in existing_spot_names
-        ]
-        spots_data["spots"] = unique_spots
-
-        # Calculate total days from start_date to end_date
-        try:
-            start_date = datetime.strptime(input_data.get("start_date", ""), "%Y-%m-%d")
-            end_date = datetime.strptime(input_data.get("end_date", ""), "%Y-%m-%d")
-            total_days = (end_date - start_date).days + 1
-            if total_days < 1:
-                total_days = 1
-        except Exception:
-            total_days = 1
-
-        # Update each spot with Kakao map info and day_x in parallel using asyncio.gather
-        spots = spots_data.get("spots", [])
-        queries = [
-            f"{spot.get('kor_name', '')} {input_data.get('main_location', '')}"
-            for spot in spots
-        ]
-        kakao_results = await asyncio.gather(
-            *(get_kakao_location_info(query) for query in queries)
+        input_data["concepts"] = ", ".join(input_data.get("concepts", []))
+        input_data["prompt"] = input_data.get("prompt", "")
+        days = calculate_trip_days(
+            input_data.get("start_date", ""), input_data.get("end_date", "")
         )
-        for idx, (spot, (new_lat, new_lon, new_address)) in enumerate(
-            zip(spots, kakao_results)
-        ):
-            spot["latitude"] = new_lat
-            spot["longitude"] = new_lon
-            if new_address:
-                spot["address"] = new_address
-            if (
-                new_lat is not None
-                and new_lon is not None
-                and new_lat != 0.0
-                and new_lon != 0.0
-            ):
-                spot["map_url"] = (
-                    f"https://map.kakao.com/link/map/{spot.get('kor_name', '')},{new_lat},{new_lon}"
-                )
-            if not spot.get("day_x") or spot.get("day_x") == 0:
-                spot["day_x"] = (idx % total_days) + 1
+        input_data["days"] = days
+        input_data["n"] = days * 2
 
-        plan_info = {
-            "main_location": input_data.get("main_location", ""),
-            "start_date": input_data.get("start_date", ""),
-            "end_date": input_data.get("end_date", ""),
-            "ages": input_data.get("ages", ""),
-            "companion_count": (
-                sum(
-                    companion.get("count", 0)
-                    for companion in input_data.get("companion_count", [])
-                )
-                if isinstance(input_data.get("companion_count"), list)
-                else 0
-            ),
-            "concepts": ", ".join(input_data.get("concepts", [])),
-            "created_at": datetime.now().strftime("%Y-%m-%d"),
-            "updated_at": datetime.now().strftime("%Y-%m-%d"),
-        }
-        return {
-            "message": "Tourist recommendations processed successfully.",
-            "plan": plan_info,
-            "spots": spots_data.get("spots", []),
-        }
+        if redis_client is None:
+            raise ValueError("[TouristAgent] 에러 - Redis 연결을 확인해주세요")
+
+        try:
+            cached_tourist_lists = (
+                await get_tourists_by_tag(input_data["main_location"], redis_client)
+                or []
+            )
+            input_data["cached_tourist_lists"] = cached_tourist_lists
+            if len(cached_tourist_lists) < days * 2:
+                result = await self.crew.kickoff_async(inputs=input_data)
+                reviewer_result = self.tasks[
+                    "reviewer_task"
+                ].output.pydantic.model_dump()
+                await save_tourist_info(reviewer_result, redis_client)
+                return result.pydantic.model_dump()
+            else:
+                result = await self.draft_crew.kickoff_async(inputs=input_data)
+                return result.pydantic.model_dump()
+        except Exception as e:
+            print(f"[TouristAgent] 에러 - {e}")
+            raise e
