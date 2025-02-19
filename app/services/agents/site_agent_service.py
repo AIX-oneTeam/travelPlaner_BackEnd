@@ -96,7 +96,6 @@ class TouristAgentService:
         logger.info(f"[Input Data] {input_data}")
         logger.info(f"[Prompt] {prompt}")
 
-<<<<<<< HEAD
         plan_id = input_data.get("plan_id")
         if not plan_id:
             raise HTTPException(status_code=400, detail="plan_id must be provided")
@@ -109,19 +108,12 @@ class TouristAgentService:
             logger.info(f"[Existing spots in plan {plan_id}]: {existing_spots}")
         else:
             existing_spots = []
-=======
-        if not input_data.get("main_location"):
-            raise HTTPException(
-                status_code=400, detail="main_location must be provided"
-            )
->>>>>>> dev
 
         if "concepts" not in input_data or not isinstance(input_data["concepts"], list):
             input_data["concepts"] = []
 
         main_location_text = f"Location: {input_data.get('main_location')}. "
 
-<<<<<<< HEAD
         exclusion_text = (
             f"Please exclude these spots: {', '.join(existing_spots)}. "
             if existing_spots
@@ -133,25 +125,6 @@ class TouristAgentService:
             if prompt
             else f"{main_location_text}{exclusion_text}"
         )
-=======
-        exclusion_text = ""
-        existing_spots = input_data.get("existing_spots", [])
-        if existing_spots:
-            existing_names = ", ".join(
-                [spot.get("kor_name", "") for spot in existing_spots]
-            )
-            exclusion_text = (
-                f"Previously recommended tourist spots: ({existing_names}). "
-                "Please strictly exclude these and recommend 5 new tourist spots. "
-            )
-
-        if prompt:
-            prompt_text = f"Additional instructions: {main_location_text}{exclusion_text}{prompt}\n"
-        else:
-            prompt_text = (
-                f"Additional instructions: {main_location_text}{exclusion_text}\n"
-            )
->>>>>>> dev
 
         return input_data, prompt_text
 
@@ -160,11 +133,7 @@ class TouristAgentService:
         return {
             "tourist_search": Agent(
                 role="Tourist Recommendation Expert",
-<<<<<<< HEAD
                 goal="Recommend at least 5 tourist spots based on the provided travel information.",
-=======
-                goal="Recommend tourist spots based on the provided travel information.",
->>>>>>> dev
                 backstory="I have up-to-date knowledge about popular tourist destinations.",
                 tools=[self.web_search_tool],
                 llm=self.llm,
@@ -269,11 +238,7 @@ class TouristAgentService:
             logger.error("Error processing result: %s", e)
             spots_data = {"spots": []}
 
-<<<<<<< HEAD
-        # Deduplication logic (inclusion of new spots only)
-=======
         # Deduplication logic
->>>>>>> dev
         existing_spot_names = [
             spot.get("kor_name", "") for spot in input_data.get("existing_spots", [])
         ]
@@ -283,11 +248,6 @@ class TouristAgentService:
             if spot.get("kor_name", "") not in existing_spot_names
         ]
         spots_data["spots"] = unique_spots
-<<<<<<< HEAD
-
-        # Continue with processing (map, Kakao info, etc.)
-        return spots_data
-=======
 
         # Calculate total days from start_date to end_date
         try:
@@ -349,4 +309,3 @@ class TouristAgentService:
             "plan": plan_info,
             "spots": spots_data.get("spots", []),
         }
->>>>>>> dev
