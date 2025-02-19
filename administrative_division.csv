@@ -1,4 +1,4 @@
-city_province,city_county, x_position, y_position
+city_province,city_county,x_position,y_position
 서울특별시, 서울특별시, 60, 127
 서울특별시, 종로구, 60, 127
 서울특별시, 중구, 60, 127
@@ -232,7 +232,6 @@ city_province,city_county, x_position, y_position
 제주특별자치도, 제주특별자치도, 52, 38
 제주특별자치도, 제주시, 53, 38
 제주특별자치도, 서귀포시, 52, 33
-이어도, 이어도, 28, 8
 이어도, 이어도, 28, 8
 강원특별자치도, 강원특별자치도, 73, 134
 강원특별자치도, 춘천시, 73, 134
