@@ -235,5 +235,5 @@ app.include_router(cafe_router, prefix="/agents", tags=["agents"])
 app.include_router(checklist_router, prefix="/checklist", tags=["checklists"])
 app.include_router(redis_test_router, prefix="/redis", tags=["redis"])
 app.include_router(voice_router, prefix="/voice", tags=["voice"])
-
+app.include_router(redis_test_router, prefix="/redis-test", tags=["redis-test"])
 
