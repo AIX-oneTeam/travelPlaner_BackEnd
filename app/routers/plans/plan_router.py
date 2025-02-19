@@ -86,13 +86,13 @@ async def read_member_plans(request: Request, session: AsyncSession = Depends(ge
             member_id = await get_memberId_by_email(email=member_email, session=session, provider=provider)
             logger.info("💡[ plan_router ] member_id : ", member_id)
         else:
-            return ErrorResponse(message="로그인이 필요합니다.")
+            return ErrorResponse(message="로그인이 필요합니다.", status_code=401)
         plans = await find_member_plans(member_id, session)
         logger.info("💡[ plan_router ] plans : ", plans)
 
         return SuccessResponse(data=plans, message="멤버의 일정 정보가 성공적으로 조회되었습니다.")
     except Exception as e:
-        return ErrorResponse(message="멤버의 일정정보 조회에 실패했습니다.", error_detail=e)
+        return ErrorResponse(message="멤버의 일정정보 조회에 실패했습니다.", error_detail=e, status_code=500)
 
 # 일정 수정
 @router.post("/{plan_id}")
