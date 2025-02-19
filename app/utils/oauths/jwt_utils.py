@@ -81,12 +81,8 @@ def create_refresh_token(user_email: str, provider: str) -> str:
         'iat': int(current_time.timestamp()),
         'provider': provider
     }
-
-    # Payload 전체를 Base64로 인코딩
-    encoded_payload = base64_encode(payload)
-
     # JWT 생성
-    refresh_token = jwt.encode({"data": encoded_payload}, JWT_REFRESH_SECRET_KEY, algorithm="HS256")
+    refresh_token = jwt.encode({"data": payload}, JWT_REFRESH_SECRET_KEY, algorithm="HS256")
     return refresh_token
 
 def create_jwt_naver(provider: str, data: dict) -> str:

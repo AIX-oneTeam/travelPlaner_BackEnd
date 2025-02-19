@@ -103,15 +103,15 @@ async def jwt_auth_middleware(request: Request, call_next):
                     value=new_access_token,
                     httponly=True,
                     secure=True,
-                    samesite="Lax",
+                    samesite="None",
                     max_age=3600,
                 )
                 return response
             except Exception as e:
                 logger.warning(f"💡리프레시 토큰으로 재발급 실패 다시 로그인 해주세요 {e}")
                 response = await call_next(request)
-                response.delete_cookie("access_token")
-                response.delete_cookie("refresh_token")
+                response.delete_cookie(key="access_token", secure=True, samesite="None", httponly=True)
+                response.delete_cookie(key="refresh_token", secure=True, samesite="None", httponly=True)
                 request.state.user = None
                 return response
 
