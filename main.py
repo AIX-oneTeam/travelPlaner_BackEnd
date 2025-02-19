@@ -14,7 +14,7 @@ from app.routers.plans.plan_spots_router import router as plan_spots_router
 from app.routers.oauths.google_oauth_router import router as google_oauth_router
 from app.routers.oauths.kakao_oauth_router import router as kakao_oauth_router
 from app.routers.oauths.naver_oauth_router import router as naver_oauth_router
-from app.utils.oauths.jwt_utils import decode_jwt, refresh_access_token_naver
+from app.utils.oauths.jwt_utils import decode_jwt, refresh_access_token
 from app.routers.regions.region_router import router as region_router
 from app.routers.agents.travel_all_schedule_agent_router import router as agent_router
 from app.routers.agents.accommodation_agent_router import router as accommodation_router
@@ -71,7 +71,6 @@ PUBLIC_PATHS = {
     "/oauths/google/callback",  # 구글 OAuth
     "/oauths/kakao/callback",  # 카카오 OAuth
     "/oauths/naver/callback",  # 네이버 OAuth
-    "/refresh-token",  # 토큰 갱신
     "/test/",  # 테스트 경로
 }
 
@@ -91,21 +90,46 @@ async def jwt_auth_middleware(request: Request, call_next):
             return await call_next(request)
 
         token = request.cookies.get("access_token")
+        refresh_token = request.cookies.get("refresh_token")
 
-        if not token:
-            logger.warning("토큰이 없습니다.")
+        # 액세스 토큰이 없지만 리프레시 토큰이 있는 경우
+        if not token and refresh_token:
+            try:
+                logger.info("💡액세스 토큰 없음, 리프레시 토큰으로 재발급 시도")
+                new_access_token = await refresh_access_token(refresh_token)
+                response = await call_next(request)
+                response.set_cookie(
+                    key="access_token",
+                    value=new_access_token,
+                    httponly=True,
+                    secure=True,
+                    samesite="Lax",
+                    max_age=3600,
+                )
+                return response
+            except Exception as e:
+                logger.warning(f"💡리프레시 토큰으로 재발급 실패 다시 로그인 해주세요 {e}")
+                response = await call_next(request)
+                response.delete_cookie("access_token")
+                response.delete_cookie("refresh_token")
+                request.state.user = None
+                return response
+
+        # 토큰도 없고 리프레시 토큰도 없는 경우 (로그인 없이 진행되는 로직)
+        if not token and not refresh_token:
+            logger.warning("💡토큰이 없습니다.")
             request.state.user = None
             return await call_next(request)
 
+        # 토큰이 있을 경우
         try:
             # JWT 토큰 검증
             user_data = decode_jwt(token)
             request.state.user = user_data
             return await call_next(request)
 
+        # 액세스 토큰 만료시 리프레시 토큰으로 재발급 시도
         except HTTPException as he:
-
-            # 액세스 토큰 만료 시 리프레시 토큰으로 재발급 시도
             logger.info("💡액세스 토큰 만료 시 리프레시 토큰으로 재발급 시도")
             refresh_token = request.cookies.get("refresh_token")
             if not refresh_token:
@@ -115,7 +139,7 @@ async def jwt_auth_middleware(request: Request, call_next):
 
             try:
                 logger.info("리프레시 토큰으로 액세스 토큰 재발급 시도")
-                new_access_token = await refresh_access_token_naver(refresh_token)
+                new_access_token = await refresh_access_token(refresh_token)
                 response = await call_next(request)
                 response.set_cookie(
                     key="access_token",
@@ -137,7 +161,7 @@ async def jwt_auth_middleware(request: Request, call_next):
 
     except Exception as e:
         logger.warning(f"💡JWT 미들웨어 오류 : {str(e)}")
-        # 예상치 못한 오류 처리
+        # 예상치 못한 에러
         request.state.user = None
         return await call_next(request)
 
@@ -182,28 +206,6 @@ async def root():
         </html>
         """
     )
-
-
-# 리프레시 토큰을 사용해 액세스 토큰을 갱신하는 엔드포인트
-@app.get("/refresh-token")
-async def refresh_token(request: Request):
-    """
-    리프레시 토큰을 사용하여 새 액세스 토큰을 발급합니다.
-    """
-    refresh_token = request.cookies.get("refresh_token")
-    if not refresh_token:
-        raise HTTPException(status_code=400, detail="Refresh token not found")
-
-    new_access_token = await refresh_access_token_naver(refresh_token)
-    response = {"message": "Token refreshed successfully"}
-    response.set_cookie(
-        key="access_token",
-        value=new_access_token,
-        httponly=True,
-        secure=True,
-        samesite="Lax",
-    )
-    return response
 
 
 @app.exception_handler(HTTPException)

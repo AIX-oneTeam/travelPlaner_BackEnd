@@ -90,7 +90,7 @@ async def handle_kakao_callback(code: str, state:str) -> dict:
             raise jwt_error
         # Refresh 토큰 생성
         try:
-            refresh_token = create_refresh_token(user_info)
+            refresh_token = create_refresh_token(provider="kakao", user_email=user_info.get("email"))
 
         except Exception as refresh_error:
             raise refresh_error

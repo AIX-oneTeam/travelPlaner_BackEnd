@@ -43,5 +43,11 @@ async def is_exist_member_by_email(email: str, oauth: str, session: AsyncSession
     except Exception as e:
         logger.error(f"[ memberRepository ] is_exist_member_by_email() 에러 : {e}")
 
-
-        
+async def get_member_by_email_and_provider(email: str, provider: str, session: AsyncSession) -> Member:
+    try:
+        query = select(Member).where((Member.email == email) & (Member.oauth == provider))
+        result = await session.exec(query)
+        member = result.first()
+        return member
+    except Exception as e:
+        logger.error(f"[ memberRepository ] get_member_by_email_and_provider() 에러 : {e}")

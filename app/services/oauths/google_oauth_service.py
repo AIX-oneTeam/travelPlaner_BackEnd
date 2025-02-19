@@ -52,7 +52,7 @@ async def handle_google_callback(code: str, state: str):
         print("------------------------------------------------------------")
 
         access_token_google = create_jwt_google(provider="google", auth_info=user_info)
-        refresh_token_google = create_refresh_token(user_info.get("email"))
+        refresh_token_google = create_refresh_token(provider="google", user_email=user_info.get("email"))
         print("access_token_google", access_token_google)
         print("refresh_token_google", refresh_token_google)
 

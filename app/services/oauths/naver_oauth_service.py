@@ -3,6 +3,8 @@ import httpx
 import os
 import dotenv
 
+from app.utils.oauths.jwt_utils import create_refresh_token
+
 dotenv.load_dotenv()
 
 NAVER_TOKEN_URL = "https://nid.naver.com/oauth2.0/token"
@@ -29,24 +31,6 @@ async def get_naver_access_token(code: str, state: str) -> dict:
         response = await client.post(NAVER_TOKEN_URL, params=params)
         response.raise_for_status()
         return response.json()
-
-
-async def refresh_naver_access_token(refresh_token: str) -> dict:
-    """
-    리프레시 토큰으로 액세스 토큰을 갱신합니다.
-    """
-    params = {
-        "grant_type": "refresh_token",
-        "client_id": NAVER_CLIENT_ID,
-        "client_secret": NAVER_CLIENT_SECRET,
-        "refresh_token": refresh_token,
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(NAVER_TOKEN_URL, params=params)
-        response.raise_for_status()
-        return response.json()  # 갱신된 액세스 토큰과 새로운 리프레시 토큰을 반환
-
 
 async def get_naver_user_profile(access_token: str) -> dict:
     """
@@ -83,7 +67,7 @@ async def handle_callback(code: str, state: str) -> tuple:
     # 액세스 토큰 및 리프레시 토큰 가져오기
     token_response = await get_naver_access_token(code, state)
     access_token = token_response.get("access_token")
-    refresh_token = token_response.get("refresh_token")
+    refresh_token = create_refresh_token(provider="naver", user_email=token_response.get("email"))
 
     if not access_token:
         raise ValueError("Access token not found")
@@ -105,20 +89,3 @@ async def handle_callback(code: str, state: str) -> tuple:
             "refresh_token": refresh_token
         },
     )
-
-# 리프레시 토큰을 사용하여 액세스 토큰을 갱신하는 함수
-async def refresh_access_token_if_needed(refresh_token: str) -> str:
-    """
-    리프레시 토큰을 사용하여 액세스 토큰을 갱신합니다.
-    """
-    if not refresh_token:
-        raise ValueError("No refresh token found")
-
-    # 리프레시 토큰을 사용하여 새로운 액세스 토큰을 가져옵니다.
-    token_response = await refresh_naver_access_token(refresh_token)
-    access_token = token_response.get("access_token")
-    if not access_token:
-        raise ValueError("Failed to get new access token")
-
-    return access_token
-
