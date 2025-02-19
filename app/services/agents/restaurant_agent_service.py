@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# logging 아이콘
+# 🔵: 전달받은 데이터 유무 확인
+# 🟢: 새로 생성된 일정이거나 plan_id 없는 경우(redis)
+# 🟡: 기존 일정 수정(DB)
+# 🟣: redis
+
 class RestaurantAgentService:
     """식당 추천을 위한 Agent 서비스"""
 
@@ -370,22 +376,19 @@ class RestaurantAgentService:
             existing_spot_names = []
             member_id = None
 
-            # 디버그 로그 추가
-            print(f"🔍 email 존재: {bool(input_data.get('email'))}")
-            print(f"🔍 session 존재: {bool(session)}")
-            print(f"🔍 redis 존재: {bool(redis_client)}")
-            print(f"🔍 plan_id 없음: {not input_data.get('plan_id')}")
+            # 데이터 유무 확인
+            print(f"🔵 email 존재: {bool(input_data.get('email'))}")
+            print(f"🔵 session 존재: {bool(session)}")
+            print(f"🔵 redis 존재: {bool(redis_client)}")
+            print(f"🔵 plan_id 없음: {not input_data.get('plan_id')}")
 
             # member_id 조회 및 Redis/DB 로직 실행
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session)
-                logger.info(f"🟡 [조회된 member_id]: {member_id}")
-                print(f"🟡 [조회된 member_id]: {member_id}")
-                print(f"🔍 member_id 조회됨: {bool(member_id)}")
+                print(f"🔵 member_id 조회됨: {bool(member_id)}")
 
                 if not input_data.get("plan_id"):
                     # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
-                    print("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
                     logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
                     try:
                         redis_service = SpotRedisService(redis_client)
@@ -464,12 +467,7 @@ class RestaurantAgentService:
                     restaurants_to_save = [
                         spot["kor_name"] for spot in processed_result.get("spots", [])
                     ]
-
-                    print(
-                        f"✅ Attempting Redis save - plan_id: {input_data.get('plan_id')}"
-                    )
-                    print(f"✅ member_id: {member_id}")
-                    print(f"⭐️ spots to save: {restaurants_to_save}")
+                    print(f"🟢 spots to save: {restaurants_to_save}")
 
                     await redis_service.add_spots(
                         category=SpotCategory.RESTAURANT,

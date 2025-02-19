@@ -39,15 +39,16 @@ class SpotRedisService:
     ) -> None:
         """새로운 장소들을 Hash의 field에 Set으로 추가"""
         try:
-            print(f"🔍 Received spots data: {spots}")
-            print(f"🔍 location: {main_location}")
-            print(f"🔍 category: {category}")
+            # 전달 받은 데이터 확인
+            logger.info(f"🟣 Received spots data: {spots}")
+            logger.info(f"🟣 Location: {main_location}")
+            logger.info(f"🟣 Category: {category}")
 
             key = self._generate_key(category)
 
-            # Redis 연결 테스트
+            # Redis 연결 확인
             await self.redis.ping()
-            print("🔍 Redis connection successful")
+            logger.info("Redis connection successful")
 
             # 현재 field(main_location)에 저장된 데이터 가져오기
             current_data = await self.redis.hget(key, main_location)
@@ -62,6 +63,7 @@ class SpotRedisService:
             # 만료 시간 설정
             await self.redis.expire(key, timedelta(hours=self.EXPIRATION_HOURS).seconds)
 
+            # redis 저장 완료 확인
             logger.info(
                 f"🟣 Redis에 저장된 장소 수: {len(updated_spots)}, Key: {key}, Field: {main_location}"
             )
@@ -69,7 +71,7 @@ class SpotRedisService:
 
         except Exception as e:
             logger.error(
-                f"🟣 Redis 저장 중 오류 발생 - Key: {key}, Field: {main_location}, Error: {e}"
+                f"Redis 저장 중 오류 발생 - Key: {key}, Field: {main_location}, Error: {e}"
             )
             raise
 
@@ -82,6 +84,7 @@ class SpotRedisService:
             data = await self.redis.hget(key, main_location)
             spots_list = json.loads(data) if data else []
 
+            # 조회된 데이터 확인
             logger.info(
                 f"🟣 Redis에서 조회된 장소 수: {len(spots_list)}, "
                 f"Key: {key}, Field: {main_location}"
@@ -90,7 +93,7 @@ class SpotRedisService:
 
         except Exception as e:
             logger.error(
-                f"🟣 Redis 조회 중 오류 발생 - Key: {key}, Field: {main_location}, Error: {e}"
+                f"Redis 조회 중 오류 발생 - Key: {key}, Field: {main_location}, Error: {e}"
             )
             return []
 
@@ -107,7 +110,7 @@ class SpotRedisService:
 
         except Exception as e:
             logger.error(
-                f"🟣 Redis 데이터 삭제 중 오류 발생 - Key: {key}, Field: {main_location}, "
+                f"Redis 데이터 삭제 중 오류 발생 - Key: {key}, Field: {main_location}, "
                 f"Error: {e}"
             )
             raise

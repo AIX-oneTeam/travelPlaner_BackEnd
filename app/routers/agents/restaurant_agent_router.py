@@ -28,7 +28,7 @@ async def get_restaurants(
     try:
         # model_dump()를 사용하여 입력 데이터를 dict 형태로 변환
         input_data = user_input.model_dump()
-        print(f"💥💥input_data : {input_data}")
+        # print(f"input_data : {input_data}")
 
         if prompt:
             input_data["prompt"] = prompt
