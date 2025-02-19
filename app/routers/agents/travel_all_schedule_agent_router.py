@@ -22,6 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
@@ -43,6 +44,8 @@ class TravelPlanRequest(BaseModel):
     concepts: List[str]
     main_location: str
     prompt: Optional[str] = Field(default=None)
+    plan_id: Optional[int] = None
+    email: Optional[str] = None
 
 
 @router.post("/plan")
@@ -74,7 +77,9 @@ async def generate_plan(
             tasks["cafe"] = cafe_agent_service.create_recommendation(input_dict)
         if "accommodation" in agent_type:
             accommocation_agent_service = AccommodationAgentService()
-            tasks["accommodation"] = accommocation_agent_service.create_recommendation(input_dict)
+            tasks["accommodation"] = accommocation_agent_service.create_recommendation(
+                input_dict
+            )
 
         # 비동기 작업 병렬 실행 및 결과 매핑
         results = await asyncio.gather(*tasks.values())
@@ -93,11 +98,19 @@ async def generate_plan(
                 token = await get_fcm_token(member_id, session)
                 print("💡[ travel_all_schedule_agent_router ] token : ", token)
                 if token is not None:
-                    send_push_message(token=token, title="EasyTravel 알림", body="에이전트가 일을 마쳤습니다.")
+                    send_push_message(
+                        token=token,
+                        title="EasyTravel 알림",
+                        body="에이전트가 일을 마쳤습니다.",
+                    )
                 else:
-                    print("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
+                    print(
+                        "💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패."
+                    )
             else:
-                print("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
+                print(
+                    "💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패."
+                )
         except Exception as e:
             logging.error(f"푸시 메시지 전송 오류: {e}")
 
