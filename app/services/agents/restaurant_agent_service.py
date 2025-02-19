@@ -399,12 +399,12 @@ class RestaurantAgentService:
                         if redis_excluded_spots:
                             existing_spot_names = redis_excluded_spots
                             logger.info(
-                                f"🟢 [Redis에서 가져온 제외 식당 목록]: {redis_excluded_spots}"
+                                f"🟢 Redis에서 가져온 제외 식당 목록: {redis_excluded_spots}"
                             )
                     except Exception as e:
                         logger.error(f"Redis 조회 중 오류 발생: {e}")
                 else:
-                    # 기존 일정 수정의 경우 - DB 로직 사용
+                    # 기존 일정 수정의 경우 - DB 사용
                     current_plan_id = input_data.get("plan_id")
                     print(f"🟡 current_plan_id: {current_plan_id}")
 
@@ -420,9 +420,9 @@ class RestaurantAgentService:
                                 plan_spots_with_spot_info = await get_member_plan_spots(
                                     latest_plan.id, member_id, session
                                 )
-                                logger.info(f"🟡 [최신 plan_id 사용]: {latest_plan.id}")
+                                logger.info(f"🟡 최신 plan_id 사용: {latest_plan.id}")
                         else:
-                            logger.info(f"🟡 [전달받은 plan_id 사용]: {current_plan_id}")
+                            logger.info(f"🟡 전달받은 plan_id 사용: {current_plan_id}")
 
                         if (
                             plan_spots_with_spot_info
@@ -433,7 +433,7 @@ class RestaurantAgentService:
                                 for item in plan_spots_with_spot_info["detail"]
                             ]
                             logger.info(
-                                f"🟡 [DB에서 가져온 기존 장소들]: {existing_spot_names}"
+                                f"🟡 DB에서 가져온 기존 장소들: {existing_spot_names}"
                             )
                     except Exception as e:
                         logger.error(f"🟡 DB 장소 조회 중 오류 발생: {e}")
