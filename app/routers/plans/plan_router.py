@@ -108,7 +108,7 @@ async def update_plan(plan_id: int, request_data: PlanRequest, request: Request,
             member_id = await get_memberId_by_email(email=request_data.email, session=session)
             logger.info("💡[ plan_router ] member_id : ", member_id)
         else:
-            return ErrorResponse(message="로그인이 필요합니다.")
+            return ErrorResponse(message="로그인이 필요합니다.", status_code=401)
         
         # 1. 소유자 확인
         plan = await find_plan(plan_id, session)
