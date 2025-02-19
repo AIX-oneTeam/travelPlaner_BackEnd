@@ -8,56 +8,97 @@ import os
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
 from app.dtos.cafe_models import CafeList
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+from sqlmodel.ext.asyncio.session import AsyncSession
 from redis.asyncio import Redis
 import json
+import logging
+from app.repository.agents.plan_spots_repository import (
+    get_member_plan_spots,
+    get_latest_plan,
+)
+from app.repository.members.mebmer_repository import get_memberId_by_email
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+logger = logging.getLogger(__name__)
 
-async def save_cafe_info(cafe_data_list: dict, redis_client:Redis):
+# logging 아이콘
+# 🔵: 전달받은 데이터 유무 확인
+# 🟢: 새로 생성된 일정이거나 plan_id 없는 경우(redis)
+# 🟡: 기존 일정 수정(DB)
+# 🟣: redis
+
+async def add_cafes_to_location(main_location:str, cafe_data: dict, redis_client:Redis):
     try:
-        # 24시간을 초로 변환 (24 * 60 * 60 = 86400초)
-        ONE_DAY_IN_SECONDS = 86400
+        expire_seconds = 60*60*24
+        key = f"cafe:{main_location}"
+        added_count = 0
         
-        # 개별 카페 데이터 저장
-        for cafe_data in cafe_data_list.get("spots", []):
-            cafe_id = cafe_data["placeId"]
-            location = cafe_data["main_location"]
-            
-            # 카페 정보 저장
-            await redis_client.set(f"cafe:{cafe_id}", json.dumps(cafe_data), ex=ONE_DAY_IN_SECONDS)
-            
-            # location tag 저장
-            await redis_client.sadd(f"tag:{location}", cafe_id)
-            await redis_client.expire(f"tag:{location}", ONE_DAY_IN_SECONDS)
-            
-        return "[CafeAgentService] -save_cafe_info: 성공적으로 저장되었습니다."
+        for cafe in cafe_data.get("spots", []):
+            cafe_json = json.dumps(cafe)  # JSON 문자열 변환
+            added = await redis_client.sadd(key, cafe_json)  # Redis SET에 추가            
+            if added:  
+                added_count += 1
+
+        await redis_client.expire(key, expire_seconds)
+        return {"message": f"[CafeAgentService] -save_cafe:{added_count}개의 새로운 카페 추가 완료"}
+        
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {error_details}")
+        return f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {str(e)}"
+                       
+async def get_cafes_from_location(main_location: str, redis_client:Redis):
+    key = f"cafe:{main_location}"
+    cafes = await redis_client.smembers(key)  # Redis SET에서 모든 값 가져오기
+    return [json.loads(cafe) for cafe in cafes]  # JSON을 다시 dict로 변환
+
+async def save_members_plan(member_id:str, input_data: dict, spots:dict, redis_client:Redis):
+    try:
+        # 5분 설정
+        time = 60*5
+        cafe_lists = [spot["kor_name"] for spot in spots.get("spots", [])]
+        plan_data = {
+            "member_id": member_id,
+            "cafe_lists" : cafe_lists,
+            "input_data" : input_data
+        }            
+        # 카페 정보 저장
+        await redis_client.set(f"member_id:{member_id}", json.dumps(plan_data), ex=time)
+        
+        return "[CafeAgentService] -save_plan: 성공적으로 저장되었습니다."
 
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {error_details}")
         return f"[CafeAgentService] - save_cafe_info : 저장 중 오류 발생: {str(e)}"
-                   
-async def get_cafes_by_tag(tag: str, redis_client: Redis):
-    """
-    특정 태그(지역 또는 키워드)에 해당하는 모든 카페 조회
-    """
-    cafe_ids = await redis_client.smembers(f"tag:{tag}")  # 태그에 해당하는 placeId 리스트 가져오기
 
-    if not cafe_ids:
-        print(f"[CafeAgentService] - 태그 '{tag}'에 해당하는 카페를 찾을 수 없습니다.")
-        return None
-    cafes = []
-    for cafe_id in cafe_ids:
-        cafe_data = await redis_client.get(f"cafe:{cafe_id}")
-        if cafe_data:
-            cafes.append(json.loads(cafe_data))
+async def get_cafe_list_by_member_id(member_id: str, redis_client: Redis):
+    try:
+        # Redis에서 데이터 가져오기
+        stored_data = await redis_client.get(f"member_id:{member_id}")
+        
+        # 데이터가 없으면 None 반환
+        if stored_data is None:
+            return f"[CafeAgentService] - get_cafe_list: 해당 member_id({member_id})에 대한 데이터가 없습니다."
 
-    return cafes
+        # JSON 문자열을 딕셔너리로 변환
+        plan_data = json.loads(stored_data)
+
+        # 카페 리스트 반환
+        cafe_lists = plan_data.get("cafe_lists", [])
+
+        return cafe_lists
+
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(f"[CafeAgentService] - get_cafe_list : 조회 중 오류 발생: {error_details}")
+        return f"[CafeAgentService] - get_cafe_list : 조회 중 오류 발생: {str(e)}"    
+    
             
             
 class CafeAgentService:
     """
-    카페 에이전트 인스턴스를 싱글톤 패턴으로 관리하는 클래스
+    카페 추천을 위한 에이전트 서비스 
     """
     _instance = None
     
@@ -68,9 +109,8 @@ class CafeAgentService:
         return cls._instance  # 동일한 인스턴스 반환
 
     def initialize(self):
-        """CrewAI 관련 객체들을 한 번만 생성"""
-        #print("cafe agent를 초기화합니다")
-                
+        """서비스 초기화"""
+               
         self.llm = LLM(model="gpt-4o-mini",api_key=OPENAI_API_KEY,temperature=0,max_tokens=4000)
         self.get_cafe_list_tool = NaverBlogSearchTool()
         self.get_cafe_info_tool = NaverBlogCralwerTool()
@@ -251,7 +291,7 @@ class CafeAgentService:
                 4. 모르는 정보는 지어내지 말고 "정보 없음"으로 작성하세요.
                 5. 중복되지 않은 서로 다른 카페 리스트를 반환해주세요.
                 참고 카페 리스트 : {cached_cafe_lists}
-                고객 요구사항({prompt})이 없으면 5개 이상의 카페를, 그렇지 않으면 {n}개의 카페를 반환하세요.
+                {n}개의 카페를 반환하세요.
                 """,
                 expected_output="""
                 spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
@@ -266,56 +306,118 @@ class CafeAgentService:
             )
         }     
     @time_check   
-    async def create_cafe_recommendation(self, input_data: dict, 
-                                    prompt: Optional[str] = None,
-                                    redis_client: Redis = None) -> dict:
+    async def create_recommendation_cafe(
+        self,
+        input_data: dict, 
+        prompt: Optional[str] = None,
+        session: AsyncSession = None,
+        redis_client: Redis = None) -> dict:
         """
         사용자 맞춤 카페를 추천하는 에이전트
         """
-        if input_data is None:
-            raise ValueError("[CafeAgent] 에러 - input_data이 없습니다. 잘못된 요청을 보냈는지 확인해주세요")
-       
-        input_data["concepts"] = ', '.join(input_data.get('concepts',[]))
-        input_data["prompt"] = prompt
-        days = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
-        input_data["days"] = days
-        input_data["n"] = days*2
-        
-        if redis_client is None:
-            raise ValueError("[CafeAgent] 에러 - Redis 연결을 확인해주세요")
-  
-        try:
-            cached_cafe_lists = await get_cafes_by_tag(input_data["main_location"], redis_client) or []
-            print(f"찾은 cached_cafe_lists 개수: {len(cached_cafe_lists)}")
-            print(f"----------------------------------------------------")
-            # print(f"cached_cafe_lists: {cached_cafe_lists}")
-            input_data["cached_cafe_lists"] = cached_cafe_lists
-            if len(cached_cafe_lists) < days*2:
-                print("저장된 카페 수가 부족해 새로 검색을 시작합니다")
+        try:                  
+            input_data["concepts"] = ', '.join(input_data.get('concepts',[]))
+            days = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
+            input_data["days"] = days
+            
+            # member_id 조회 
+            if input_data.get("email") and session:
+                member_id = await get_memberId_by_email(email=input_data["email"], session=session)
+                print(f"🔵 member_id 조회됨: {bool(member_id)}")    
+            
+            # 데이터 유무 확인
+            print(f"🔵 email 존재: {bool(input_data.get('email'))}")
+            print(f"🔵 session 존재: {bool(session)}")
+            print(f"🔵 redis 존재: {bool(redis_client)}")
+            print(f"🔵 plan_id 없음: {not input_data.get('plan_id')}")
+
+            # 초안 에이전트는 redis만 조회
+            if not prompt:
                 print(f"----------------------------------------------------")
-                try:
-                    input_data["cached_cafe_lists"] = ""
-                    result = await self.crew.kickoff_async(inputs=input_data)
-                    reviewer_result = self.tasks['reviewer_task'].output.pydantic.model_dump()
-                    # print(f"reviewr_task_output_raw:{reviewer_result}")
-                    await save_cafe_info(reviewer_result,redis_client)
-                    print(f"result : {result}")
-                    return result.pydantic.model_dump()
-                except Exception as e:
-                    print(f"[CafeAgent] 에러: {e}")
-                    raise e  # 또는 적절한 에러 메시지를 담아 반환                   
+                print("prompt가 None, 빈 문자열 또는 null입니다.: 초안 에이전트가 실행 됩니다.")
+                print(f"----------------------------------------------------")
+                input_data["n"] = days*2
+
+                cached_cafe_lists = await get_cafes_from_location(input_data["main_location"], redis_client) or []
+                print(f"찾은 cached_cafe_lists 개수: {len(cached_cafe_lists)}")
+                print(f"----------------------------------------------------")
+                if len(cached_cafe_lists) < days*2:
+                    try:
+                        print("저장된 카페 수가 부족해 새로 검색을 시작합니다")
+                        print(f"----------------------------------------------------")
+                        input_data["cached_cafe_lists"] = ""
+                        
+                        # 전체 crew 실행
+                        result = await self.crew.kickoff_async(inputs=input_data)
+                        spots = result.pydantic.model_dump()
+                        reviewer_result = self.tasks['reviewer_task'].output.pydantic.model_dump()
+                        # 새로 찾은 카페들 redis에 저장(하루뒤 만료)
+                        await add_cafes_to_location(input_data["main_location"], reviewer_result,redis_client)
+                        # 초안 일정 저장
+                        await save_members_plan(member_id, input_data, spots, redis_client)
+                        print(f"spots : {spots}")
+                        return spots
+                    except Exception as e:
+                        print(f"[CafeAgent] 에러: {e}")
+                        raise e                    
+                else:
+                    try:
+                        input_data["cached_cafe_lists"] = cached_cafe_lists
+                        # redis에 저장된 cafe list 중에서 선택
+                        result = await self.draft_crew.kickoff_async(inputs=input_data)
+                        spots = result.pydantic.model_dump()
+                        # 초안 일정 저장
+                        await save_members_plan(member_id, input_data, spots, redis_client)
+                        print(f"spots : {spots}")
+                        return spots
+                    except Exception as e:
+                        print(f"[CafeAgent] 에러: {e}")
+                        raise e  # 또는 적절한 에러 메시지를 담아 반환              
+            
             else:
-                try:
-                    result = await self.draft_crew.kickoff_async(inputs=input_data)
-                    print(f"result-draft-crew:{result}")
-                    return result.pydantic.model_dump()
-                except Exception as e:
-                    print(f"[CafeAgent] 에러: {e}")
-                    raise e  # 또는 적절한 에러 메시지를 담아 반환   
+                print(f"----------------------------------------------------")                
+                print("prompt가 정상적인 값입니다: 추가 카페 검색 요청입니다", prompt)
+                print(f"----------------------------------------------------")                
+                input_data["n"] = 5 
+
+                # redis에 카페 갯수 먼저 확인
+                cached_cafe_lists = await get_cafes_from_location(input_data["main_location"], redis_client) or []
+
+                # 기존에 추천한 카페 제외하기 위해 이름, 갯수 확인
+                # plan_id 확인하는 로직 추가
+                plan_id=""                    
                 
+                # plan_id 없는 경우 redis에서 멤버id 조회
+                if not plan_id:
+                    recommended_cafe_lists = get_cafe_list_by_member_id(member_id=member_id, redis_client=redis_client)
+                
+                else:
+                    # plan_id 있는 경우 db에서 조회
+                    recommended_cafe_lists = ""  
+
+                # redis에 저장된 카페 갯수가 기존에 추천한 카페 갯수 제외해도 넉넉한지 확인
+                if len(cached_cafe_lists)-len(recommended_cafe_lists) >= 5:
+                    # 중복 제거(cached_cafe_lists에서 recommended_Cafe_lists제외)
+                    cached_cafe_lists = ""
+                    # 충분하면 기존에 저장된거 중에서 추천
+                    input_data["cached_cafe_lists"] = cached_cafe_lists
+                    result = await self.draft_crew.kickoff_async(inputs=input_data)
+                    spots = result.pydantic.model_dump()
+                    return spots
+                else:
+                    # 부족하면 새로 검색
+                    # 전체 crew 실행
+                    result = await self.crew.kickoff_async(inputs=input_data)
+                    spots = result.pydantic.model_dump()
+                    reviewer_result = self.tasks['reviewer_task'].output.pydantic.model_dump()
+                    # 새로 찾은 카페들 redis에 저장(하루뒤 만료)
+                    await add_cafes_to_location(input_data["main_location"], reviewer_result,redis_client)
+                    print(f"spots : {spots}")
+                    return spots
+                              
         except Exception as e:
             print(f"[CafeAgent] 에러 - {e}")                
-                
+            raise e
 # {
 #   "ages": "20대",
 #   "companion_count": [

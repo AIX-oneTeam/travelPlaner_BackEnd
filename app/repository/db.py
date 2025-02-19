@@ -38,7 +38,6 @@ async def lifespan(app: FastAPI):
 
     # Redis 초기화
     await init_redis(app)
-    logger.info("Redis 연결 완료")
     
     try:
         yield
@@ -47,7 +46,6 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
         logger.info("데이터베이스 연결 종료 완료")
         await close_redis()
-        logger.info("Redis 연결 종료 완료")
 
 # 의존성 주입을 위한 비동기 세션 제공자
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:

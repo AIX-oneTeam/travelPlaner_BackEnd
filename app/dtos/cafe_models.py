@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 from typing import List
 
 class CafeData(BaseModel):
-    main_location: str
     keywords: List[str]
     n_posting: int
     placeId: str
