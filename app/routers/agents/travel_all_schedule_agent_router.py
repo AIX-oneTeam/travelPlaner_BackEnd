@@ -77,7 +77,7 @@ async def generate_plan(
         if "restaurant" in agent_type:
             restaurant_service = RestaurantAgentService()
             tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(
-                input_dict
+                input_dict, session, redis_client=redis_client
             )
         if "site" in agent_type:
             site_agent_service = TouristAgentService()
