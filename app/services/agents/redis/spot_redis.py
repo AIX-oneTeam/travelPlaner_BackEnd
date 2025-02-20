@@ -6,7 +6,7 @@ from redis.asyncio import Redis
 from datetime import timedelta
 
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.INFO)
 
 class SpotCategory(str, Enum):
     CAFE = "cafe"
