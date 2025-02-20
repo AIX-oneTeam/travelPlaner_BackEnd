@@ -404,7 +404,7 @@ class NaverImageSearchTool(BaseTool):
                 data = await response.json()
                 items = data.get("items", [])
                 if not items:
-                    return "https://via.placeholder.com/300x200?text=No+Image"
+                    return None
 
                 # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
                 for item in items:
@@ -413,10 +413,10 @@ class NaverImageSearchTool(BaseTool):
                         return img_url
 
                 # 만약 모두 접근 불가능하다면, 기본 이미지 URL 반환
-                return "https://via.placeholder.com/300x200?text=No+Image"
+                return None
         except Exception as e:
             logger.error(f"네이버 이미지 검색 오류: {str(e)}")
-            return "https://via.placeholder.com/300x200?text=Error"
+            return None
 
     async def _arun(
         self, restaurant_list: Union[List[str], List[Dict], Dict]
