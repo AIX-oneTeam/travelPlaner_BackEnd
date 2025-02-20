@@ -174,3 +174,18 @@ class Checklist(SQLModel, table=True):
     )
 
     plan: Plan = Relationship(back_populates="checklists")
+
+class ImageUrl(SQLModel, table=True):
+    __tablename__ = "image_url"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(max_length=255)
+    url: str = Field(max_length=2083)
+    created_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+    )
+    updated_at: datetime = Field(
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+    )
+    
+    
+
