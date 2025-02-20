@@ -54,7 +54,7 @@ async def check_url_openable_async(url: str) -> bool:
         return False
 
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=3) as client:
             response = await client.head(url, follow_redirects=True)
             if 200 <= response.status_code < 400:
                 return True
