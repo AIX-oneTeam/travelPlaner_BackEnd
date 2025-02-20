@@ -20,8 +20,16 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 SERP_API_KEY = os.getenv("SERP_API_KEY")
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("accommodation_agent_service")
+logger.setLevel(logging.INFO)
 
+file_handler = logging.FileHandler('logs/accommodation_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 class AccommodationAgentService:
     _instance = None
     

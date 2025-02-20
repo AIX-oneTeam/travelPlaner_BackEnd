@@ -35,7 +35,7 @@ async def get_restaurants(
 
         try:
             result = await restaurant_service.create_recommendation_restaurant(
-                input_data, prompt, session, redis_client=redis_client
+                input_data=input_data, prompt=prompt, session=session, redis_client=redis_client
             )
         except Exception as e:
             logger.error(f"[ERROR] create_recommendation() 오류 발생: {e}")

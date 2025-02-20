@@ -12,8 +12,16 @@ from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("site_agent_service")
 logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/site_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

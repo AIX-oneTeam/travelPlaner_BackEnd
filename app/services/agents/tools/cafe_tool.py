@@ -1,4 +1,5 @@
 import json
+import logging
 import httpx
 import asyncio
 from dotenv import load_dotenv
@@ -10,6 +11,17 @@ import json
 import emoji  
 import re
 load_dotenv()
+
+logger = logging.getLogger("cafe_agent_tools")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/cafe_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 # 네이버 API 관련 환경변수
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")

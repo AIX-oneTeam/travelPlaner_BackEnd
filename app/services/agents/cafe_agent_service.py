@@ -12,6 +12,19 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 from redis.asyncio import Redis
 import json
+import logging
+
+logger = logging.getLogger("cafe_agent_service")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/cafe_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+
 
 async def save_cafe_info(cafe_data_list: dict, redis_client:Redis):
     try:

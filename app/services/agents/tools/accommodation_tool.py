@@ -7,12 +7,23 @@ import re
 import httpx
 import json
 import http.client
-
+import logging
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 SERP_API_KEY = os.getenv("SERP_API_KEY")
+
+logger = logging.getLogger("accommodation_agent_tools")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/accommodation_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 async def check_url_openable_async(url: str) -> bool:
     """

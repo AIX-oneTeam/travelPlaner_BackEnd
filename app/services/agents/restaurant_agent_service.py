@@ -26,9 +26,22 @@ from app.utils.time_check import time_check
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/restaurant_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+gpt_4o_mini = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
+gpt_4o = LLM(model="gpt-4o", temperature=0, api_key=OPENAI_API_KEY)
+gpt_3_5_turbo = LLM(model="gpt-3.5-turbo", temperature=0, api_key=OPENAI_API_KEY)
 
 # logging 아이콘
 # 🔵: 전달받은 데이터 유무 확인
@@ -49,7 +62,6 @@ class RestaurantAgentService:
 
     def initialize(self):
         """서비스 초기화"""
-        self.llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
         # Tools 초기화
         self.geocoding_tool = GeocodingTool()
         self.restaurant_search_tool = RestaurantBasicSearchTool()
@@ -68,16 +80,14 @@ class RestaurantAgentService:
         if prompt:
             # prompt가 있으면 concepts 무시
             input_data["concepts"] = []
+            logger.info(f"🔵:[컨셉 초기화] concepts: {input_data["concepts"]}")
             prompt_text = f"다음 조건에 맞춰서 추천해주세요: {prompt}"
+            logger.info(f"🔵:[프롬프트 입력] prompt_text: {prompt_text}")
+            
         else:
             # prompt가 없을 때만 concepts 처리
             valid_concepts = [
-                "맛집",
-                "해산물 좋아",
-                "고기 좋아",
-                "가족 여행",
-                "기념일",
-                "낮술",
+              "낮술", "해산물", "고기", "채식", "브런치"
             ]
             filtered_concepts = [
                 concept
@@ -100,7 +110,7 @@ class RestaurantAgentService:
                 goal="사용자가 입력한 location(예: '부산광역시')의 위도와 경도를 조회하며, location 값은 그대로 유지한다.",
                 backstory="나는 위치 데이터 전문가로, 입력된 location 값을 변경하지 않고 Google Geocoding API를 통해 좌표를 조회한다.",
                 tools=[self.geocoding_tool],
-                llm=self.llm,
+                llm=gpt_4o_mini,
                 verbose=True,
                 async_execution=True,
             ),
@@ -110,7 +120,7 @@ class RestaurantAgentService:
                 backstory="""나는 자연어 처리 전문가로, 사용자의 요구사항에서 핵심 키워드를 추출하여 맛집 검색의 정확도를 높입니다.
                 각 키워드는 '지역명 + 목적' 형식으로 구성하며, 실제 검색에 효과적인 구체적인 키워드만을 사용합니다.""",
                 tools=[],
-                llm=self.llm,
+                llm=gpt_4o_mini,
                 verbose=True,
                 async_execution=True,
                 memory=True,
@@ -120,40 +130,42 @@ class RestaurantAgentService:
                 goal="좌표 정보를 활용하여 식당의 기본 정보를 조회한다.",
                 backstory="나는 맛집 데이터 분석 전문가로, Google Maps API를 사용하여 특정 위치의 식당 정보를 조회한다.",
                 tools=[self.restaurant_search_tool],
-                llm=self.llm,
+                llm=gpt_4o_mini,
                 verbose=True,
                 async_execution=True,
                 memory=True,
             ),
             "final_recommendation": Agent(
                 role="최종 추천 에이전트",
-                goal="네이버 웹 검색으로 수집한 세부 정보를 바탕으로, 여행 계획에 맞는 최종 맛집 추천 리스트를 생성한다.",
-                backstory="나는 데이터 분석 전문가로, 네이버 웹 검색으로 수집한 맛집 정보를 여행 일정과 컨셉에 맞게 분석하여 최적의 추천 리스트를 구성한다.",
+                goal="웹 검색으로 수집한 세부 정보를 바탕으로, 여행 계획에 맞는 최종 맛집 추천 리스트를 생성한다.",
+                backstory="나는 데이터 분석 전문가로, 웹 검색으로 수집한 맛집 정보를 여행 일정과 컨셉에 맞게 분석하여 최적의 추천 리스트를 구성한다.",
                 tools=[self.web_search_tool],
-                llm=self.llm,
+                llm=gpt_4o,
                 verbose=True,
                 async_execution=True,
                 memory=True,
             ),
             "image_search": Agent(
-                role="네이버 이미지 검색 에이전트",
-                goal="네이버 이미지 검색 API를 사용해 식당의 이미지 URL을 조회한다.",
-                backstory="나는 네이버 이미지 검색 전문가로, 식당의 정확한 이미지를 제공합니다.",
+                role="이미지 검색 에이전트",
+                goal="주어진 도구를 사용해 식당의 이미지 URL을 제공한다.",
+                backstory="나는 이미지 검색 전문가로, 식당의 정확한 이미지를 제공합니다.",
                 tools=[self.image_search_tool],
-                llm=self.llm,
+                llm=gpt_4o_mini,
                 verbose=True,
                 async_execution=True,
                 memory=True,
+                max_iter=1,
             ),
             "kakao_local_search": Agent(
-                role="카카오 로컬 검색 에이전트",
-                goal="카카오 로컬 API를 사용해 식당의 상세 정보(주소, 위도/경도, 지도 URL, 전화번호, 영업시간, 영업상태)를 정확하게 조회한다.",
-                backstory="나는 카카오 로컬 검색 전문가로, 식당의 위치 정보뿐만 아니라 전화번호, 영업시간, 현재 영업 상태 등 실용적인 정보를 종합적으로 제공하는 것을 전문으로 합니다.",
+                role="식당 상세 정보 검색 에이전트",
+                goal="주어진 도구를 사용해 식당의 상세 정보(주소, 위도/경도, 지도 URL, 전화번호, 영업시간, 영업상태)를 정확하게 조회한다.",
+                backstory="나는 식당 상세 검색 전문가로, 식당의 위치 정보뿐만 아니라 전화번호, 영업시간, 현재 영업 상태 등 실용적인 정보를 종합적으로 제공하는 것을 전문으로 합니다.",
                 tools=[self.kakao_local_search_tool],
-                llm=self.llm,
+                llm=gpt_4o_mini,
                 verbose=True,
                 async_execution=True,
                 memory=True,
+                max_iter=1,
             ),
         }
 
@@ -252,7 +264,8 @@ class RestaurantAgentService:
                 expected_output="최종 추천 맛집 리스트",
             ),
             Task(
-                description=f"""최종 추천된 맛집 리스트에 포함된 식당들의 이미지를 검색하고,  
+                description=f"""최종 추천된 맛집 리스트에 포함된 식당들의 이미지를 **데이터베이스에서 조회**하고,  
+                데이터베이스에 정보가 없다면 이미지를 **네이버 이미지 검색 API**를 사용하여 검색하고 데이터베이스에 저장하라.
                 기존 JSON 형식을 유지하면서 **image_url 필드만 업데이트**하라.  
                 반드시 아래 JSON 스키마를 따르며, 정확하고 누락 없이 정보를 반환할 것.  
 
@@ -367,15 +380,15 @@ class RestaurantAgentService:
             member_id = None
 
             # 데이터 유무 확인
-            print(f"🔵 email 존재: {bool(input_data.get('email'))}")
-            print(f"🔵 session 존재: {bool(session)}")
-            print(f"🔵 redis 존재: {bool(redis_client)}")
-            print(f"🔵 plan_id 없음: {not input_data.get('plan_id')}")
+            logger.info(f"🔵 email 존재: {bool(input_data.get('email'))}")
+            logger.info(f"🔵 session 존재: {bool(session)}")
+            logger.info(f"🔵 redis 존재: {bool(redis_client)}")
+            logger.info(f"🔵 plan_id 없음: {not input_data.get('plan_id')}")
 
             # member_id 조회 및 Redis/DB 로직 실행
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session)
-                print(f"💥💥 member_id 조회됨: {bool(member_id)}")
+                logger.info(f"💥💥 member_id 조회됨: {bool(member_id)}")
 
                 if not input_data.get("plan_id"):
                     # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
@@ -397,7 +410,7 @@ class RestaurantAgentService:
                 else:
                     # 기존 일정 수정의 경우 - DB 사용
                     current_plan_id = input_data.get("plan_id")
-                    print(f"🟡 current_plan_id: {current_plan_id}")
+                    logger.info(f"🟡 current_plan_id: {current_plan_id}")
 
                     try:
                         # 현재 plan이 해당 member의 것인지 확인
@@ -448,7 +461,7 @@ class RestaurantAgentService:
             # 4. 결과 실행 및 처리
             result = await crew.kickoff_async()
             processed_result = self._process_result(result, processed_input)
-            print(f"⭐️ processed_result: {processed_result}")
+            logger.info(f"⭐️ processed_result: {processed_result}")
 
             # 5. plan_id가 없는 경우, 결과를 Redis에 저장
             if not input_data.get("plan_id") and redis_client:
@@ -457,7 +470,7 @@ class RestaurantAgentService:
                     restaurants_to_save = [
                         spot["kor_name"] for spot in processed_result.get("spots", [])
                     ]
-                    print(f"🟢 spots to save: {restaurants_to_save}")
+                    logger.info(f"🟢 spots to save: {restaurants_to_save}")
 
                     await redis_service.add_spots(
                         member_id=member_id,
@@ -473,4 +486,5 @@ class RestaurantAgentService:
 
         except Exception as e:
             traceback.print_exc()
+            logger.error(f"오류 발생: {e}")
             raise HTTPException(status_code=500, detail=str(e))

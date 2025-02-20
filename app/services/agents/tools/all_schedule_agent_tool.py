@@ -2,6 +2,18 @@ import numpy as np
 from typing import List, Dict
 from geopy.distance import geodesic
 from crewai.tools import BaseTool
+import logging
+
+logger = logging.getLogger("all_schedule_agent_tools")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/all_schedule_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 class HaversineRouteOptimizer(BaseTool):
     """하버사인 공식을 활용하여 최적 방문 경로를 계산하는 도구"""

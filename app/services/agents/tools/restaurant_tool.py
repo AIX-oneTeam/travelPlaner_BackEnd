@@ -8,7 +8,20 @@ from crewai.tools import BaseTool
 from typing import List, Dict, Union
 from dotenv import load_dotenv
 import logging
-logger = logging.getLogger(__name__)
+
+from app.repository.db import get_async_session_manual
+from app.repository.images.image_repository import get_image_url, save_image_url
+from app.utils.time_check import time_check
+logger = logging.getLogger("restaurant_agent_tools")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/restaurant_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 # 환경 변수 로드
 load_dotenv()
@@ -18,6 +31,7 @@ AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
 KAKAO_LOCAL_API_KEY = os.getenv("KAKAO_LOCAL_API_KEY")
 
 
+@time_check
 def clean_query(query: str) -> str:
     """
     입력 문자열이 여러 줄일 경우, 각 줄에 대해
@@ -42,6 +56,7 @@ def clean_query(query: str) -> str:
     return " ".join(clean_lines)
 
 
+@time_check
 async def check_url_openable_async(url: str) -> bool:
     """
     주어진 URL에 대해 HEAD 요청을 보내어 접근 가능한지 확인합니다.
@@ -59,7 +74,7 @@ async def check_url_openable_async(url: str) -> bool:
             if 200 <= response.status_code < 400:
                 return True
             else:
-                return False
+                raise Exception(f"URL '{url}' is not openable. Status code: {response.status_code}")
     except Exception as e:
         logger.error(f"Error checking URL '{url}': {e}")
         return False
@@ -72,7 +87,8 @@ class GeocodingTool(BaseTool):
         "입력된 location 값은 변경 없이 그대로 반환합니다."
     )
 
-    async def _arun(self, location: str) -> Dict:
+    @time_check
+    async def _arun_geocoding(self, location: str) -> Dict:
         url = "https://maps.googleapis.com/maps/api/geocode/json"
         params = {"address": location, "key": GOOGLE_MAP_API_KEY}
         try:
@@ -89,7 +105,7 @@ class GeocodingTool(BaseTool):
         return {"location": location, "coordinates": coordinates}
 
     def _run(self, location: str) -> Dict:
-        return asyncio.run(self._arun(location))
+        return asyncio.run(self._arun_geocoding(location))
 
 # 2. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
 class RestaurantBasicSearchTool(BaseTool):
@@ -98,6 +114,7 @@ class RestaurantBasicSearchTool(BaseTool):
         "주어진 좌표와 검색 키워드를 기반으로 구글맵에서 식당 정보를 검색합니다."
     )
 
+    @time_check
     def calculate_target_count(self, start_date: str, end_date: str) -> int:
         """여행 일수에 따른 목표 수집 개수 계산"""
         start = datetime.strptime(start_date.split("T")[0], "%Y-%m-%d")
@@ -110,6 +127,7 @@ class RestaurantBasicSearchTool(BaseTool):
         else:
             return 7 + (days - 1) * 3
 
+    @time_check
     async def get_place_details(
         self, session: aiohttp.ClientSession, place_id: str
     ) -> Dict:
@@ -133,6 +151,7 @@ class RestaurantBasicSearchTool(BaseTool):
             logger.error(f"[RestaurantBasicSearchTool] Details Error: {e}")
             return None
 
+    @time_check
     async def search_with_filter(
         self,
         keywords: List[str],
@@ -228,7 +247,8 @@ class RestaurantBasicSearchTool(BaseTool):
 
         return collected
 
-    async def _arun(
+    @time_check
+    async def _arun_restaurant_basic_search(
         self,
         coordinates: str,
         search_keywords: List[str],
@@ -298,6 +318,7 @@ class RestaurantBasicSearchTool(BaseTool):
                 logger.info(f"3단계 검색 완료: 총 {len(collected_spots)}개 수집")
 
         logger.info(f"최종 수집된 맛집 수: {len(collected_spots)}")
+        logger.info(f"최종 수집된 맛집 목록: {collected_spots}")
         return collected_spots
 
     def _run(
@@ -309,7 +330,7 @@ class RestaurantBasicSearchTool(BaseTool):
         existing_spot_names: List[str] = None,
     ) -> List[Dict]:
         return asyncio.run(
-            self._arun(
+            self._arun_restaurant_basic_search(
                 coordinates, search_keywords, start_date, end_date, existing_spot_names
             )
         )
@@ -320,7 +341,8 @@ class NaverWebSearchTool(BaseTool):
     name: str = "NaverWebSearch"
     description: str = "네이버 웹 검색 API를 사용해 식당의 상세 정보를 검색합니다."
 
-    async def fetch(self, session: aiohttp.ClientSession, query: str):
+    @time_check
+    async def fetch_web_search(self, session: aiohttp.ClientSession, query: str):
         url = "https://openapi.naver.com/v1/search/webkr.json"
         headers = {
             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
@@ -367,7 +389,7 @@ class NaverWebSearchTool(BaseTool):
         results = {}
         async with aiohttp.ClientSession() as session:
             for restaurant in restaurant_list:
-                results[restaurant] = await self.fetch(session, restaurant)
+                results[restaurant] = await self.fetch_web_search(session, restaurant)
         return results
 
     def _run(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
@@ -378,10 +400,12 @@ class NaverWebSearchTool(BaseTool):
 class NaverImageSearchTool(BaseTool):
     name: str = "NaverImageSearch"
     description: str = (
-        "네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 검색합니다."
+        "식당이름을 이용해 데이터베이스에 이미지 URL이 이미 존재하는지 조회합니다. 조회결과가 없다면 이미지 검색 API를 사용해 식당의 대표 이미지를 검색합니다. 검색된 이미지 url을 데이터 베이스에 저장합니다."
     )
 
-    async def fetch(self, session: aiohttp.ClientSession, query: str):
+    @time_check
+    async def fetch_image_url(self, session: aiohttp.ClientSession, query: str):
+        logger.info(f"[🪔네이버 이미지 검색 시작]: {query}에 대한 검색 시작")
         url = "https://openapi.naver.com/v1/search/image"
         headers = {
             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
@@ -391,7 +415,7 @@ class NaverImageSearchTool(BaseTool):
         }
 
         query = clean_query(query)
-        logger.info(f"[네이버 이미지 검색어]: {query}")
+        logger.info(f"[🪔네이버 이미지 검색어] clean_query 적용 후: {query}")
 
         params = {
             "query": query,
@@ -402,14 +426,18 @@ class NaverImageSearchTool(BaseTool):
         try:
             async with session.get(url, headers=headers, params=params) as response:
                 data = await response.json()
+                logger.info(f"[🪔네이버 이미지 검색 결과]: {data}")
                 items = data.get("items", [])
+                logger.info(f"[🪔네이버 이미지 검색 결과]: {items}")
                 if not items:
                     return "https://via.placeholder.com/300x200?text=No+Image"
 
                 # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
                 for item in items:
                     img_url = item.get("link", "")
+                    logger.info(f"[🪔네이버 이미지 검색 결과]: {img_url}를 검사하겠습니다.")
                     if await check_url_openable_async(img_url):
+                        logger.info(f"[🪔네이버 이미지 검색 결과]: {img_url}가 접근 가능합니다.")
                         return img_url
 
                 # 만약 모두 접근 불가능하다면, 기본 이미지 URL 반환
@@ -418,7 +446,8 @@ class NaverImageSearchTool(BaseTool):
             logger.error(f"네이버 이미지 검색 오류: {str(e)}")
             return "https://via.placeholder.com/300x200?text=Error"
 
-    async def _arun(
+    @time_check
+    async def _arun_naver_image_search(
         self, restaurant_list: Union[List[str], List[Dict], Dict]
     ) -> Dict[str, str]:
         # 딕셔너리 리스트인 경우 처리
@@ -444,15 +473,37 @@ class NaverImageSearchTool(BaseTool):
             )
 
         restaurants = [str(r) for r in restaurants if r is not None]
+        logger.info(f"[🪔네이버 이미지 검색 식당 목록]: {restaurants}")
+
 
         results = {}
         async with aiohttp.ClientSession() as session:
             for restaurant in restaurants:
-                results[restaurant] = await self.fetch(session, restaurant)
+                try:
+                    db_session = await get_async_session_manual()
+                    # 데이터베이스에 이미 존재하는 이미지 URL을 가져옵니다.
+                    image_url = await get_image_url(image_name=restaurant, session = db_session)
+                    logger.info(f"[🪔데이터베이스에 존재하는 이미지 URL]: {restaurant}에 대한 이미지 URL: {image_url}")
+                    # 데이터베이스에 없다면 네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 검색합니다.
+                    if image_url == None:
+                        logger.info(f"[🪔네이버 이미지 검색 시작]: {restaurant}에 대한 검색 시작")
+                        new_image_url = await self.fetch_image_url(session=session, query=restaurant)
+                        logger.info(f"[🪔네이버 이미지 검색 결과]: {new_image_url}를 새로 찾았습니다. 데이터베이스에 저장합니다.")
+                        # 데이터베이스에 저장합니다.
+                        await save_image_url(image_url=new_image_url, image_name=restaurant, session=db_session)
+                
+                        # 결과에 추가합니다.
+                        results[restaurant] = new_image_url
+                    else:
+                        results[restaurant] = image_url
+                except Exception as e:
+                    logger.error(f"🪔네이버 이미지 검색 오류: {str(e)}")
+                await db_session.commit()
+                await db_session.close()
         return results
 
     def _run(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
-        return asyncio.run(self._arun(restaurant_list))
+        return asyncio.run(self._arun_naver_image_search(restaurant_list))
 
 
 # 5. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
@@ -460,7 +511,8 @@ class KakaoLocalSearchTool(BaseTool):
     name: str = "KakaoLocalSearch"
     description: str = "카카오 로컬 API를 사용해 식당의 위치 정보를 검색합니다."
 
-    async def fetch(self, session: aiohttp.ClientSession, name: str, location: str):
+    @time_check
+    async def _fetch_local_search_kakao(self, session: aiohttp.ClientSession, name: str, location: str):
         url = "https://dapi.kakao.com/v2/local/search/keyword.json"
         headers = {"Authorization": f"KakaoAK {KAKAO_LOCAL_API_KEY}"}
 
@@ -537,13 +589,14 @@ class KakaoLocalSearchTool(BaseTool):
             # "category_name": "",
         }
 
-    async def _arun(self, restaurant_names: List[str], location: str) -> List[Dict]:
+    @time_check
+    async def _arun_kakao_local_search(self, restaurant_names: List[str], location: str) -> List[Dict]:
         """모든 식당 정보를 병렬로 처리"""
         results = []
         async with aiohttp.ClientSession() as session:
-            tasks = [self.fetch(session, name, location) for name in restaurant_names]
+            tasks = [self._fetch_local_search_kakao(session, name, location) for name in restaurant_names]
             results = await asyncio.gather(*tasks)
         return results
 
     def _run(self, restaurant_names: List[str], location: str) -> List[Dict]:
-        return asyncio.run(self._arun(restaurant_names, location))
+        return asyncio.run(self._arun_kakao_local_search(restaurant_names, location))
