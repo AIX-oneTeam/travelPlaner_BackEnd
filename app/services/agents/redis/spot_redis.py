@@ -13,6 +13,7 @@ class SpotCategory(str, Enum):
     RESTAURANT = "restaurant"
     SITE = "site"
     ACCOMMODATION = "accommodation"
+    ALL = "all" # 초안 에이전트
 
 
 class SpotRedisService:
