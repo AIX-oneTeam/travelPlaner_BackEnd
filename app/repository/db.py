@@ -64,6 +64,12 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
             logger.info(f"💡[ 세션 종료 ] {session}")
             await session.close()
 
+#  수동 세션 획득
+async def get_async_session_manual():
+        session = async_session_maker()
+        logger.info(f"💡[ 수동 세션 생성 ] {session}")
+        return session
+
 # 동기식 연결
 # SQLAlchemy 세션을 생성하고 반환하는 제너레이터 - deprecated
 # def get_session_sync():

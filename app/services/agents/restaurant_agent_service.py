@@ -190,7 +190,9 @@ class RestaurantAgentService:
                 expected_output="좌표와 3개의 맛집 검색 키워드",
             ),
             Task(
-                description=f"""기존에 추천되었던 {input_data.get('existing_spot_names', [])} 식당들은 제외하고 정보 조회해주세요.""",
+                description=f"""{input_data['start_date']}부터 {input_data['end_date']}까지의 여행 일정에 맞춰서 맛집을 조회해주세요.
+                기존에 추천되었던 {input_data.get('existing_spot_names', [])} 식당들은 제외하고 정보를 조회해주세요.
+                """,
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
             ),
@@ -200,45 +202,52 @@ class RestaurantAgentService:
                 동반자({', '.join([f"{c['label']} {c['count']}명" for c in input_data['companion_count']])})를 위한
                 {prompt_text}
 
-                반드시 아래 JSON 스키마에 맞추어 정확하고 누락 없이 정보를 반환할 것.
-                
-                JSON 스키마:
+                제공된 맛집 목록 중에서, 검색된 전체 맛집 수보다 2개 적게 추천해야 합니다.
+                예를 들어, 13개의 맛집이 검색되었다면 최종 추천은 11개가 되어야 합니다.
+
+                ### 맛집 선별 및 추천 규칙:
+                1. **여행 일정에 따른 추천 개수 계산 방법**  
+                - 추천 개수 = (검색된 맛집 수) - 2  
+                - 예시:
+                    * 1일 여행 (7개 검색): 5개 추천  
+                    * 2일 여행 (10개 검색): 8개 추천  
+                    * 3일 여행 (13개 검색): 11개 추천  
+                    * 4일 여행 (16개 검색): 14개 추천  
+
+                2. **선별 기준**  
+                - 하루 3끼 기준으로 일정에 맞게 구성할 것  
+                - 동반자의 연령대 및 특성을 고려한 적합성 평가  
+                - 방문 시간대와 위치를 고려하여 효율적인 동선 구성  
+                - 동일 식당 또는 동일 프랜차이즈 지점은 중복해서 추천하지 말 것  
+
+                3. **필수 검토사항**  
+                - 영업 상태가 확인된 식당을 우선 추천할 것  
+                - 접근성과 예상 대기시간을 고려할 것  
+                - 동반자 구성에 따른 메뉴의 다양성을 확인할 것  
+
+                4. **출력 형식**  
+                반드시 아래 JSON 스키마에 맞춰, 누락 없이 정확하게 정보를 작성할 것:
+
                 {{
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
-                    "description": "string (가게 설명, 최소 150자 이상 200자 이하)",
+                    "description": "string (가게 설명, 최소 150자 이상 180자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
-                    "business_hours": "string 또는 null (영업 시간 정보)"
-                    "url": "string 또는 null (가게 URL, 공식 정보 우선)",
+                    "business_hours": "string 또는 null (영업 시간 정보)",
+                    "url": "string 또는 null (가게 URL, 공식 정보 우선)"
                 }}
 
                 ### 상세 정보 수집 지시사항:
                 - **eng_name**: kor_name을 영어로 번역하여 입력할 것.
-                    - 예시: "미포집" -> "Mipojip"
-                    - 식당 이름의 의미를 살려서 적절히 번역할 것.
-                - **description**: 수집한 데이터를 바탕으로, **가게의 주요 메뉴, 분위기, 위치적 특징**을 포함하여 **최소 150자 이상 230자 이하**로 작성할 것.
-                    - **절대 식당 이름을 문장 앞에 사용하지 말 것.**  
-                        - 금지된 형식: `"OO식당은 유명한 맛집이다."`, `"XX식당에서는 대표 메뉴로~"`
-                        - 올바른 형식: `"육즙이 풍부한 소고기 스테이크가 대표 메뉴로, 깊은 풍미가 느껴진다."`
-                    - **식당 이름이 포함된 문장이 생성되었을 경우, 반드시 제거하고 문장을 자연스럽게 다시 작성할 것.**
-                    - 가게의 대표적인 메뉴와 맛의 특징을 포함할 것.  
-                    - 식당의 분위기(예: 가족 단위 방문 적합, 캐주얼한 분위기 등)를 반영할 것.
-                    - 설명은 반드시 한글로 작성하며, 간결하면서도 핵심적인 정보를 포함할 것.
-                    - 주요 메뉴가 확인되지 않는 경우, 가게의 운영 스타일(예: 오마카세, 셀프바, 테이크아웃 전문)이나 위치적 특징(예: 바닷가 근처, 전통시장 내 위치 등)을 강조할 것.
-                - **url**: 가게의 공식 웹사이트 또는 신뢰할 수 있는 정보가 제공되는 URL을 포함할 것.
-                    - **우선순위**:
-                    1. 공식 웹사이트 (예: https://example-restaurant.com)
-                    2. 네이버 지도 또는 카카오 지도 링크 (예: https://map.naver.com/v5/entry/place/12345678)
-                    3. 공식 SNS 페이지 (예: Instagram, Facebook)
-                    4. 주요 맛집 리뷰 사이트 URL (예: https://mangoplate.com/restaurants/XXXX)
-                    - 공식 URL이 없을 경우 null을 입력할 것.
-
-                ### 최종 맛집 리스트 추천 규칙:
-                - 하루 3끼 기준으로 최종 리스트를 구성해야 한다.
-                - 예: 1박 2일 → 최소 6개 추천, 2박 3일 → 최소 9개 추천.
-                - 동일한 식당이 중복되지 않도록 구성할 것.
-                - 동일한 브랜드(예: 스타벅스, 맥도날드 등)의 프랜차이즈 지점이 중복되지 않도록 할 것.
-                - 만약 추천된 식당이 부족할 경우, 전체 후보 리스트에서 추가하여 반드시 정해진 개수를 채울 것.
+                    - 예시: "미포집" → "Mipojip"
+                    - 식당 이름의 의미를 살려서 적절하게 번역할 것.
+                - **description**: 수집한 데이터를 바탕으로 가게의 주요 메뉴, 분위기, 위치적 특징을 포함하여 **최소 150자 이상 180자 이하**로 작성할 것.
+                    - **절대 식당 이름을 문장 앞에 사용하지 말 것.**
+                    - 식당 이름이 포함된 문장이 생성되었을 경우, 반드시 제거하고 자연스럽게 다시 작성할 것.
+                    - 대표 메뉴, 맛의 특징, 분위기 등을 반영할 것.
+                - **url**: 가게의 공식 웹사이트 또는 신뢰할 수 있는 URL을 우선 포함할 것.
+                    - 공식 웹사이트가 없으면 null을 입력할 것.
+                    - 우선순위: 공식 웹사이트 > 네이버/카카오 지도 링크 > 공식 SNS 페이지 > 맛집 리뷰 사이트 URL.
                 """,
                 agent=self.agents["final_recommendation"],
                 expected_output="최종 추천 맛집 리스트",
@@ -252,7 +261,7 @@ class RestaurantAgentService:
                 {{
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
-                    "description": "string (가게 설명, 최소 150자 이상 200자 이하)",
+                    "description": "string (가게 설명, 최소 150자 이상 180자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
                     "business_hours": "string 또는 null (영업 시간 정보)"
                     "url": "string 또는 null (가게 URL, 공식 정보 우선)",
@@ -295,27 +304,8 @@ class RestaurantAgentService:
 
                 ## 여행 일정 기반 필수 규칙
                 - `spot_category`는 항상 `2`로 설정해야 한다.  
-                - `day_x`는 사용자의 여행 일정에서 **해당 식당이 추천된 날짜**를 의미하며, 반드시 **숫자로만 반환**해야 한다.  
-                    - `{input_data['start_date']}`을 `1`로 설정하고 이후 날짜는 `+1`씩 증가.  
-                    - `{input_data['end_date']}`을 포함하여 자동으로 `day_x`를 계산.  
-                - `order`는 `day_x` 내에서의 추천 순서이며, 반드시 **1, 2, 3까지만 가능**하다.  
-                    - 하루에 **최대 3개의 추천 (`order = 1, 2, 3`)** 만 가능하다.  
-                    - `order = 3`이 되면, 다음 추천은 **`day_x +1`로 이동**하며, `order = 1`부터 다시 시작해야 한다.  
-                - `order`는 여행 동선과 식사 유형을 고려한 방문 순서이며, 다음 기준을 따른다.  
-                    - `1` (아침): 브런치, 해장국, 한식 조식, 베이커리 등  
-                    - `2` (점심): 한정식, 고기류, 해산물, 파스타 등  
-                    - `3` (저녁): 고기류, 해산물, 스테이크, 한정식, 로컬 야시장, 바 & 펍 등  
                 - `latitude, longitude`를 활용하여 **사용자의 이동 동선을 고려**해 추천할 것.  
                 - 같은 지역에서 **불필요한 장거리 이동이 발생하지 않도록 조정**할 것.  
-
-                - `spot_time`은 사용자의 식사 시간 패턴을 고려하여 `hh:mm:ss` 형식으로 반환해야 한다.  
-                    - `{input_data['start_date']}`을 기준으로 `day_x`를 계산하여 시간 설정.  
-                    - 아침: `08:00 ~ 10:00` 중 선택  
-                    - 점심: `12:00 ~ 14:00` 중 선택  
-                    - 저녁: `18:00 ~ 20:00` 중 선택  
-                    - 사용자의 선호도 및 일정에 따라 ±1시간 조정 가능  
-
-                - `order` 및 `day_x` 값은 사용자의 여행 일정(`{input_data['start_date']} ~ {input_data['end_date']}`)을 고려하여 자동 조정해야 한다.  
 
                 ## 반환 데이터 형식 및 예외 처리
                 - 기존 JSON 형식을 유지하면서, 위에서 지정한 필드를 업데이트해야 한다.  
@@ -369,9 +359,9 @@ class RestaurantAgentService:
     async def create_recommendation_restaurant(
         self,
         input_data: dict,
-        prompt: Optional[str] = None,
         session: AsyncSession = None,
         redis_client: Redis = None,
+        prompt: Optional[str] = None,
     ) -> dict:
         try:
             existing_spot_names = []
@@ -386,7 +376,7 @@ class RestaurantAgentService:
             # member_id 조회 및 Redis/DB 로직 실행
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session)
-                print(f"🔵 member_id 조회됨: {bool(member_id)}")
+                print(f"💥💥 member_id 조회됨: {bool(member_id)}")
 
                 if not input_data.get("plan_id"):
                     # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
@@ -394,8 +384,9 @@ class RestaurantAgentService:
                     try:
                         redis_service = SpotRedisService(redis_client)
                         redis_excluded_spots = await redis_service.get_spots(
-                            category=SpotCategory.RESTAURANT,
+                            member_id=member_id,
                             main_location=input_data["main_location"],
+                            category=SpotCategory.RESTAURANT,
                         )
                         if redis_excluded_spots:
                             existing_spot_names = redis_excluded_spots
@@ -443,7 +434,6 @@ class RestaurantAgentService:
             # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
             processed_input["existing_spot_names"] = existing_spot_names
-            processed_input["member_id"] = member_id
 
             # 2. Task 생성
             tasks = self._create_tasks(processed_input, prompt_text)
@@ -471,8 +461,9 @@ class RestaurantAgentService:
                     print(f"🟢 spots to save: {restaurants_to_save}")
 
                     await redis_service.add_spots(
-                        category=SpotCategory.RESTAURANT,
+                        member_id=member_id,
                         main_location=input_data["main_location"],
+                        category=SpotCategory.RESTAURANT,
                         spots=restaurants_to_save,
                     )
                 except Exception as e:

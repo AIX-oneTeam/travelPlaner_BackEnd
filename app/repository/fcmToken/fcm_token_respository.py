@@ -10,6 +10,7 @@ async def get_fcm_token(member_id: int, session: AsyncSession):
     logger.info(f"💡[ fcm_token_respository ] get_fcm_token() : {member_id}")
     try:
         result = await session.exec(select(MessageToken).where(MessageToken.member_id == member_id))
+        # 항상 첫 번째 반환
         fcm_token = result.first()
         if fcm_token is None:
             return None
