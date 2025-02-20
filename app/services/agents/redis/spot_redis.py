@@ -27,15 +27,20 @@ class SpotRedisService:
         """
         self.redis = redis_client
 
-    def _generate_key(self, category: SpotCategory) -> str:
+    def _generate_key(self, member_id: str, category: SpotCategory) -> str:
         """Redis 키 생성
         Args:
+            member_id: 사용자 ID
             category: 장소 카테고리
         """
-        return category.value
+        return f"{member_id}:{category.value}"
 
     async def add_spots(
-        self, category: SpotCategory, main_location: str, spots: List[str]
+        self,
+        member_id: str,
+        category: SpotCategory,
+        main_location: str,
+        spots: List[str],
     ) -> None:
         """새로운 장소들을 Hash의 field에 Set으로 추가"""
         try:
@@ -43,8 +48,9 @@ class SpotRedisService:
             logger.info(f"🟣 Received spots data: {spots}")
             logger.info(f"🟣 Location: {main_location}")
             logger.info(f"🟣 Category: {category}")
+            logger.info(f"🟣 Member ID: {member_id}")
 
-            key = self._generate_key(category)
+            key = self._generate_key(member_id, category)
 
             # Redis 연결 확인
             await self.redis.ping()
@@ -65,7 +71,8 @@ class SpotRedisService:
 
             # redis 저장 완료 확인
             logger.info(
-                f"🟣 Redis에 저장된 장소 수: {len(updated_spots)}, Key: {key}, Field: {main_location}"
+                f"🟣 Redis에 저장된 장소 수: {len(updated_spots)}, "
+                f"Key: {key}, Field: {main_location}"
             )
             logger.info(f"🟣 Redis에 저장된 장소들: {updated_spots}")
 
@@ -75,10 +82,12 @@ class SpotRedisService:
             )
             raise
 
-    async def get_spots(self, category: SpotCategory, main_location: str) -> List[str]:
+    async def get_spots(
+        self, member_id: str, category: SpotCategory, main_location: str
+    ) -> List[str]:
         """Redis Hash에서 특정 field의 장소 목록 조회"""
         try:
-            key = self._generate_key(category)
+            key = self._generate_key(member_id, category)
 
             # Hash에서 특정 field 데이터 조회
             data = await self.redis.hget(key, main_location)
@@ -97,10 +106,12 @@ class SpotRedisService:
             )
             return []
 
-    async def clear_spots(self, category: SpotCategory, main_location: str) -> None:
+    async def clear_spots(
+        self, member_id: str, category: SpotCategory, main_location: str
+    ) -> None:
         """특정 카테고리의 특정 field 삭제"""
         try:
-            key = self._generate_key(category)
+            key = self._generate_key(member_id, category)
 
             # Hash에서 특정 field 삭제
             await self.redis.hdel(key, main_location)
@@ -122,20 +133,23 @@ redis_service = SpotRedisService(redis_client)
 
 # 식당 추가
 await redis_service.add_spots(
+    member_id="user123",
     category=SpotCategory.RESTAURANT,
-    mian_location="부산광역시 - 해운대구",
+    main_location="부산광역시-해운대구",
     spots=["맛있는 식당", "좋은 식당"]
 )
 
 # 식당 조회
 restaurants = await redis_service.get_spots(
+    member_id="user123",
     category=SpotCategory.RESTAURANT,
-    main_location="부산광역시 - 해운대구"
+    main_location="부산광역시-해운대구"
 )
 
 # 식당 목록 삭제
 await redis_service.clear_spots(
+    member_id="user123",
     category=SpotCategory.RESTAURANT,
-    main_location="부산광역시 - 해운대구"
+    main_location="부산광역시-해운대구"
 )
 """

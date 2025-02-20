@@ -375,7 +375,7 @@ class RestaurantAgentService:
             # member_id 조회 및 Redis/DB 로직 실행
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session)
-                print(f"🔵 member_id 조회됨: {bool(member_id)}")
+                print(f"💥💥💥 member_id 조회됨: {bool(member_id)}")
 
                 if not input_data.get("plan_id"):
                     # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
@@ -383,6 +383,7 @@ class RestaurantAgentService:
                     try:
                         redis_service = SpotRedisService(redis_client)
                         redis_excluded_spots = await redis_service.get_spots(
+                            member_id=member_id,
                             category=SpotCategory.RESTAURANT,
                             main_location=input_data["main_location"],
                         )
@@ -459,6 +460,7 @@ class RestaurantAgentService:
                     print(f"🟢 spots to save: {restaurants_to_save}")
 
                     await redis_service.add_spots(
+                        member_id=member_id,
                         category=SpotCategory.RESTAURANT,
                         main_location=input_data["main_location"],
                         spots=restaurants_to_save,
