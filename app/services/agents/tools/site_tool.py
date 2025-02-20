@@ -7,6 +7,9 @@ import os
 import re
 import logging
 
+from app.repository.db import get_async_session_manual
+from app.repository.images.image_repository import get_image_url, save_image_url
+
 logger = logging.getLogger("site_agent_tools")
 logger.setLevel(logging.INFO)
 
@@ -146,19 +149,46 @@ class NaverTouristImageSearchTool(BaseTool):
             "filter": "all",
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, params=params) as response:
-                    data = await response.json()
-                    items = data.get("items", [])
-                    if not items:
-                        return "https://via.placeholder.com/300x200?text=No+Image"
-                    for item in items:
-                        img_url = item.get("link", "")
-                        if await check_url_openable_async(img_url):
-                            return img_url
-                    return "https://via.placeholder.com/300x200?text=No+Image"
+            logger.info(f"[🎎관광지 이미지 검색]: {cleaned_query}에 대한 검색 시작")
+            result_image_url = None
+            db_session = await get_async_session_manual()
+            # 데이터베이스에 이미 존재하는 이미지 URL을 가져옵니다.
+            image_url = await get_image_url(image_name=cleaned_query, session = db_session)
+            logger.info(f"[🎎관광지 이미지 검색]: {cleaned_query}에 대한 이미지 URL: {image_url}")
+            if image_url == None:
+                logger.info(f"[🎎관광지 이미지 검색]: {cleaned_query}에 대한 이미지 URL이 없습니다. 웹에서 검색합니다.")
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers, params=params) as response:
+                        data = await response.json()
+                        items = data.get("items", [])
+                        if not items:
+                            logger.info(f"[🎎관광지 이미지 검색]: {cleaned_query}에 대한 이미지 URL이 없습니다. 대체 이미지를 사용합니다.")
+                            result_image_url = "https://via.placeholder.com/300x200?text=No+Image"
+                        else:
+                            for item in items:
+                                img_url = item.get("link", "")
+                                # 이미지가 열리는 지 확인
+                                if await check_url_openable_async(img_url):
+                                    logger.info(f"[🎎관광지 이미지 검색]: {cleaned_query}에 대해 웹에서 가져온 이미지 URL: {img_url}를 데이터베이스에 저장합니다.")
+                                    # 데이터베이스에 저장합니다.
+                                    await save_image_url(image_url=img_url, image_name=cleaned_query, session=db_session)
+                                    # 웹에서 가져온 최종결과 이미지 URL 저장
+                                    # 저장한 이미지 커밋 및 커넥션 반환
+                                    await db_session.commit()
+                                    result_image_url = img_url
+                                    # for문 탈출
+                                    break;
+            else:
+                logger.info(f"[🎎관광지 이미지 검색]: {cleaned_query}에 대한 이미지 URL이 이미 데이터베이스에 존재합니다. 데이터베이스에서 가져옵니다.")
+                result_image_url = image_url
+
+            # 데이터베이스 커넥션 반환
+            await db_session.close()
+            return result_image_url
         except Exception as e:
             logger.error(f"Tourist image search error: {e}")
+            await db_session.commit();
+            await db_session.close();
             return "https://via.placeholder.com/300x200?text=Error"
 
     def _run(self, query: Union[str, dict]) -> str:

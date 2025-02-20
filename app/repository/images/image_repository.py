@@ -17,7 +17,7 @@ async def save_image_url(image_url:str, image_name:str, session: AsyncSession):
         await session.commit()
     session.add(ImageUrl(name=image_name, url=image_url))
 
-async def get_image_url(image_name: str, session: AsyncSession) -> str:
+async def get_image_url(image_name: str, session: AsyncSession) -> str | None:
     query = select(ImageUrl).where(ImageUrl.name == image_name)
     result = await session.exec(query)
     image_url = result.first()
