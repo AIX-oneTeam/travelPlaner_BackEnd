@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.exceptions import HTTPException, RequestValidationError
 from huggingface_hub import get_session
 
+from app.dtos.common.response import ErrorResponse
 from app.repository.db import lifespan
 from app.repository.db import init_table_by_SQLModel
 from app.routers.members.member_router import router as member_router
@@ -115,11 +116,13 @@ async def jwt_auth_middleware(request: Request, call_next):
                 return response
             except Exception as e:
                 logger.warning(f"💡리프레시 토큰으로 재발급 실패 다시 로그인 해주세요 {e}")
-                response = await call_next(request)
+                response = ErrorResponse(
+                    status_code=401,
+                    message="올바르지 않은 리프레시 토큰입니다.",
+                )
                 # 잘못된 토큰 삭제
                 response.delete_cookie(key="access_token", secure=True, samesite="None", httponly=True)
                 response.delete_cookie(key="refresh_token", secure=True, samesite="None", httponly=True)
-                request.state.user = None
                 return response
 
         # 토큰도 없고 리프레시 토큰도 없는 경우 (로그인 없이 진행되는 로직)
@@ -164,7 +167,10 @@ async def jwt_auth_middleware(request: Request, call_next):
             except Exception as e:
                 # 리프레시 토큰 갱신 실패
                 logger.warning(f"💡리프레시 토큰으로 재발급 실패 다시 로그인 해주세요 {e}")
-                response = await call_next(request)
+                response = ErrorResponse(
+                    status_code=401,
+                    message="올바르지 않은 리프레시 토큰입니다.",
+                )
                 # 잘못된 토큰 삭제
                 response.delete_cookie(key="access_token", secure=True, samesite="None", httponly=True)
                 response.delete_cookie(key="refresh_token", secure=True, samesite="None", httponly=True)
@@ -174,7 +180,11 @@ async def jwt_auth_middleware(request: Request, call_next):
         logger.warning(f"💡JWT 미들웨어 오류 : {str(e)}")
         # 예상치 못한 에러
         request.state.user = None
-        return await call_next(request)
+        return ErrorResponse(
+            status_code=500,
+            error_code=str(e),
+            message="jwt 미들웨어에서 발생한 오류",
+        )
 
 
 # 요청 데이터 검증 오류 처리
@@ -202,7 +212,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.get("/")
 async def root():
     # 데이터베이스 초기화
-    await init_table_by_SQLModel()
+    # await init_table_by_SQLModel()
     return HTMLResponse(
         """
         <html lang="ko">
