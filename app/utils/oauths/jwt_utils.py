@@ -210,6 +210,7 @@ async def refresh_access_token(refresh_token: str) -> str:
         payload = decode_jwt(refresh_token)
         logger.info(f"💡[ jwt_utils ] refresh_access_token() payload : {payload}")
         logger.info(f"💡[ jwt_utils ] refresh_access_token() payload type : {type(payload)}")
+
         # TODO: 리프레시 토큰 검증
 
         # 새 액세스 토큰 생성 (python 3.10 이상)
@@ -233,9 +234,9 @@ async def refresh_access_token(refresh_token: str) -> str:
                 new_access_token = create_jwt_google(provider=provider, member_info = member_info)
 
         return new_access_token
-    except HTTPException as e:
+    except Exception as e:
         logger.error(f"[ jwt_utils ] refresh_access_token() 에러 : {e}")
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        raise HTTPException(status_code=401, detail="올바르지 않은 리프레시 토큰입니다.")
 
 
 
