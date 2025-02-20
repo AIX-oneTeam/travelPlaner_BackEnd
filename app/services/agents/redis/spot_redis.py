@@ -134,22 +134,23 @@ redis_service = SpotRedisService(redis_client)
 # 식당 추가
 await redis_service.add_spots(
     member_id="user123",
-    category=SpotCategory.RESTAURANT,
     main_location="부산광역시-해운대구",
+    category=SpotCategory.RESTAURANT,
     spots=["식당1", "식당2"]
 )
 
 # 식당 조회
 restaurants = await redis_service.get_spots(
     member_id="user123",
+    main_location="부산광역시-해운대구,"
     category=SpotCategory.RESTAURANT,
-    main_location="부산광역시-해운대구"
+    
 )
 
 # 식당 목록 삭제
 await redis_service.clear_spots(
     member_id="user123",
-    category=SpotCategory.RESTAURANT,
-    main_location="부산광역시-해운대구"
+    main_location="부산광역시-해운대구,"
+    category=SpotCategory.RESTAURANT
 )
 """
