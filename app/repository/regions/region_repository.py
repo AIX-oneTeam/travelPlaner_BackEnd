@@ -9,7 +9,7 @@ async def get_all_divisions(session: AsyncSession):
         results = await session.exec(statement)
         divisions = results.all()
         return [
-            {"city_province": d.city_province, "city_county": d.city_county}
+            {"city_province": d.city_province, "city_county": d.city_county, "x_position": d.x_position, "y_position": d.y_position}
             for d in divisions
         ]
     except Exception as e:
