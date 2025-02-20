@@ -135,12 +135,12 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. tool 사용시 "{main_location}"과 "keywords"를 순서대로 입력하세요.
-                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트
+                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트, 갯수는 prompt와 concepts의 수 미만  
                 - 각각의 키워드는 하나의 형용사 또는 명사여야 하고, "카페"와 "지역명" "추천"은 제외해주세요.
-                - 키워드는 최대 3개까지만 입력 가능합니다. 여러개의 키워드가 같은 의미라면 1가지 키워드만 사용하세요.
+                - 의미가 비슷한 키워드는 1가지만 사용하세요.
                 2. 카페별로 포스팅 된 url을 모아 정리하고, 설명을 요약해주세요. 
                 3. 포스팅 횟수가 많은 카페 순으로 내림차순 정렬해주세요
-                tool output이 반환한 모든 url을 빠짐없이 정리해주세요.
+                **반드시 tool output이 반환한 url을 빠짐 없이 전부 정리해주세요.**
                 """,
                 expected_output="""
                 1. "keywords" : 사용한 키워드 리스트
@@ -326,13 +326,13 @@ class CafeAgentService:
             
             # 에이전트 실행
             result = await self.crew.kickoff_async(inputs=input_data)
-            
+            spots = result.pydantic.model_dump()  
             # plan_id가 없는 경우, 결과를 Redis에 저장
             if not input_data.get("plan_id") and redis_client:
                 try:
                     redis_service = SpotRedisService(redis_client)
                     restaurants_to_save = [
-                        spot["kor_name"] for spot in result.get("spots", [])
+                        spot["kor_name"] for spot in spots.get("spots", [])
                     ]
                     logger.info(f"🟢 spots to save: {restaurants_to_save}")
 
@@ -345,7 +345,7 @@ class CafeAgentService:
                     logger.error(f"Redis 저장 중 오류 발생: {e}")
                     traceback.print_exc()
                 
-                return result.pydantic.model_dump()           
+                return spots          
         except Exception as e:
             logger.info(f"[CafeAgent] 에러 - {e}")                
                 
