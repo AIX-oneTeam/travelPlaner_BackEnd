@@ -48,8 +48,8 @@ class TravelScheduleAgentService:
         return {
             "planner": Agent(
                 role="여행 일정 최적화 플래너",
-                goal="restaurant(맛집), cafe(카페), site(관광지) 세 카테고리의 장소들을 시간대별로 적절히 조합하여 최적의 여행 일정을 구성한다.",
-                backstory="""다양한 카테고리(맛집, 카페, 관광지)의 장소들을 시간대별 규칙에 맞게 조합하여 효율적인 여행 일정을 만드는 전문가입니다.
+                goal="restaurant(맛집), cafe(카페), site(관광지), accommodation(숙소) 네 카테고리의 장소들을 시간대별로 적절히 조합하여 최적의 여행 일정을 구성한다.",
+                backstory="""다양한 카테고리(맛집, 카페, 관광지, 숙소)의 장소들을 시간대별 규칙에 맞게 조합하여 효율적인 여행 일정을 만드는 전문가입니다.
                 각 카테고리별 데이터를 분석하고, 시간대별로 적절한 장소를 선택하여 최적의 동선을 구성합니다.""",
                 tools=[self.route_tool],
                 llm=self.llm,
@@ -69,22 +69,43 @@ class TravelScheduleAgentService:
         - 사용 가능한 카테고리: restaurant, cafe, site, accommodation (제공된 카테고리만 사용)
 
         규칙 및 조건:
-        1. 일정은 각 날짜별로 생성되며, 전체 여행 기간은 {start_date}부터 {end_date}까지이다.
-        2. 각 날짜별로 생성되는 시간 슬롯은 다음과 같다:
-        - 일반 날짜 (마지막 날짜가 아닌 경우):
-            - spot_time: 13:00 → restaurant (점심 식사)
-            - spot_time: 14:30 → site (첫 번째 관광지 방문)
-            - spot_time: 16:00 → cafe (카페 방문)
-            - spot_time: 17:30 → site (두 번째 관광지 방문)
-            - spot_time: 19:00 → restaurant (저녁 식사)
-            - spot_time: 20:30 → accommodation (숙소; 해당 데이터가 없으면 빈 슬롯)
-            (spot_time은 고정되어 있으며 직접 변경 불가능)
-        - 마지막 날짜 ({end_date}와 동일한 날):
-            - 오직 spot_time: 13:00 → restaurant (점심 식사 후 일정 종료)만 생성
+        1. 일정은 각 날짜별로 생성되며, 전체 여행 기간은 {start_date} ~ {end_date}까지이다.
+        2. 각 날짜별로 생성되는 시간 슬롯은 다음과 같다.
+        - **중요** 만일 {end_date}뺴기{start_date}의 값이 '2' 이상일 경우, 중간일 일정을 만든다.
+        예를 들어 {end_date}뺴기{start_date}=2(즉, 2박 3일의 경우): 시작일-중간일-마지막일
+        {end_date}뺴기{start_date}=2(즉, 3박 4일의 경우) : 시작인-중간일-중간일-마지막일
+            
+        - 시작일 ({start_date}) 형식:
+        - 반드시 식당 - 관광지 - 카페 - 관광지 - 식당 - 숙소의 순서를 지키도록 한다. 
+        - 반드시 식당 2개 관광지 2개 카페 1개 숙소 1개의 데이터가 포함되도록 한다.
+            - spot_time: 13:00 고정 : 첫 번째 restaurant 데이터
+            - spot_time: 14:30 고정 : 첫 번째 site 데이터
+            - spot_time: 16:00 고정 : 첫 번째 cafe 데이터
+            - spot_time: 17:30 고정 : 두 번째 site 데이터
+            - spot_time: 19:00 고정 : 두 번째 restaurant 데이터
+            - spot_time: 20:30 고정 : accommodation 데이터 
+            (spot_time은 고정되어 있으며 절대 직접 변경 불가능)
+            
+        - 시작일 ({start_date}) 반복 형식 = 중간일 :
+        - 반드시 식당 - 관광지 - 카페 - 관광지 - 식당 - 숙소의 순서를 지키도록 한다. 
+        - 반드시 식당 2개 관광지 2개 카페 1개 숙소 1개의 데이터가 포함되도록 한다.
+            - spot_time: 13:00 고정 : 세 번째 restaurant 데이터
+            - spot_time: 14:30 고정 : 세 번째 site 데이터
+            - spot_time: 16:00 고정 : 두 번째 cafe 데이터
+            - spot_time: 17:30 고정 : 네 번째 site 데이터
+            - spot_time: 19:00 고정 : 네 번째 restaurant 데이터
+            - spot_time: 20:30 고정 : accommodation 데이터 (반드시 시작일 accommodation 데이터와 동일한 장소)
+            (spot_time은 고정되어 있으며 절대 직접 변경 불가능)
+            
+        - 마지막일({end_date}와 동일한 날) 형식:
+        - end_date와 동일한 마지막 날짜에는 반드시 하나의 식당 데이터만 가질 수 있도록 한다. 
+            - 오직 spot_time: 13:00 고정 : 다섯 번째 restaurant 데이터 (점심 식사 후 일정 종료)만 생성
+
         3. 각 날짜의 일정이 모두 생성되면, 다음 날짜(day_x 값은 1씩 증가)로 넘어간다.
-        4. 사용 가능한 데이터(restaurant, cafe, site, accommodation) 중에서 조건에 맞게 장소를 선택하며, 한 번 선택된 장소는 재사용하지 않는다.
-        5. 필요한 카테고리가 없는 경우 해당 시간 슬롯은 생략한다.
-        6. 최적의 이동 경로를 위해 제공된 위도/경도 정보를 기반으로 장소들을 재배치한다.
+        4. restaurant, cafe, site 중에서 조건에 맞게 장소를 선택하며, 한 번 선택된 장소는 재사용하지 않는다.
+        5. 단 accommodation의 경우 시작일 accommodation 데이터를 반드시 반복한다.
+        6. 필요한 카테고리가 없는 경우 해당 시간 슬롯은 생략한다.
+        7. 최적의 이동 경로를 위해 제공된 위도/경도 정보를 기반으로 장소들을 재배치한다.
 
         [PROCESS]
         1. 여행 기간을 날짜별로 순회하며 각 날짜에 대해 일정 생성.
