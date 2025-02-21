@@ -247,7 +247,7 @@ class RestaurantAgentService:
                     - 공식 웹사이트가 없으면 null을 입력할 것.
                     - 우선순위: 공식 웹사이트 > 네이버/카카오 지도 링크 > 공식 SNS 페이지 > 맛집 리뷰 사이트 URL.
                 - **business_status**: 공식 정보(웹사이트 등)를 기준으로, 영업 중이면 true, 아니면 false로 입력할 것.
-                - **business_hours**: 공식 정보(웹사이트 등)를 기준으로 '11:00 - 22:00' 형식으로 작성하고, 공식 정보가 없으면 수집된 데이터를 바탕으로 추정하여 입력할 것.
+                - **business_hours**: 공식 정보(웹사이트 등)를 기준으로 '09:00 - 22:00' 형식으로 작성하고, 공식 정보가 없으면 수집된 데이터를 바탕으로 추정하여 입력할 것.
                 """,
                 agent=self.agents["final_recommendation"],
                 expected_output="최종 추천 맛집 리스트",
