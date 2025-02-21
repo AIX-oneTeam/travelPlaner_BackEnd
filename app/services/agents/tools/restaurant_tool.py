@@ -9,7 +9,19 @@ from typing import List, Dict, Union
 from dotenv import load_dotenv
 import logging
 
-logger = logging.getLogger(__name__)
+from app.repository.db import get_async_session_manual
+from app.repository.images.image_url_repository import get_image_url, save_image_url
+
+logger = logging.getLogger("restaurant_agent_tools")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/restaurant_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 # 환경 변수 로드
 load_dotenv()
@@ -419,7 +431,7 @@ class NaverImageSearchTool(BaseTool):
         }
 
         query = clean_query(query)
-        logger.info(f"[네이버 이미지 검색어]: {query}")
+        logger.info(f"[🪔네이버 이미지 검색어]: {query}")
 
         params = {
             "query": query,
@@ -430,27 +442,40 @@ class NaverImageSearchTool(BaseTool):
 
         max_attempts = 2
         for attempt in range(max_attempts):
-            try:
-                async with session.get(url, headers=headers, params=params) as response:
+            logger.info(f"[🪔네이버 이미지 검색 {attempt+1}/{max_attempts}번째 시도]")
+            logger.info(f"[🪔네이버 이미지 검색 ]: {params}를 검색합니다.")
+            
+            # db_session = await get_async_session_manual()
+            # try:
+            #     # DB에서 조회
+            #     existing_image_url = await get_image_url(query, db_session)
+            #     if existing_image_url:
+            #         logger.info(f"[🪔네이버 이미지 검색]: {existing_image_url}가 이미 DB에서 존재합니다.")
+            #         return existing_image_url
+
+                # logger.info(f"[🪔네이버 이미지 검색]: 데이터베이스에 결과가 없습니다. 웹에서 검색합니다.")
+            async with session.get(url, headers=headers, params=params) as response:
                     data = await response.json()
+                
                     items = data.get("items", [])
                     if not items:
-                        logger.warning(
-                            f"[네이버 이미지 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
-                        )
-                    else:
-                        # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
-                        for item in items:
-                            img_url = item.get("link", "")
-                            if await check_url_openable_async(img_url):
-                                return img_url
-            except Exception as e:
-                logger.error(
-                    f"네이버 이미지 검색 오류 시도 {attempt+1}/{max_attempts}: {str(e)}"
-                )
+                        logger.warning(f"[🪔네이버 이미지 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음")
+                        continue
+
+                    # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택
+                    for item in items:
+                        img_url = item.get("link", "")
+                        if await check_url_openable_async(img_url):
+                            logger.info(f"[🪔네이버 이미지 검색]: {img_url}를 찾았습니다. DB에 저장합니다.")
+                            # await save_image_url(img_url, query, db_session)
+                            # await db_session.commit()
+                            return img_url
+            # except Exception as e:
+            logger.error(f"[🪔네이버 이미지 검색 오류] 시도 {attempt+1}/{max_attempts}: {str(e)}")
+                # await db_session.commit()
+            # finally:
+                # await db_session.close()
             await asyncio.sleep(1)  # 재시도 전 잠시 대기
-        # 모든 시도 실패 시 None 반환
-        return None
 
     async def _arun(
         self, restaurant_list: Union[List[str], List[Dict], Dict]
