@@ -26,7 +26,7 @@ class AccommodationResponse(BaseModel):
     status: str
     message: str
     data: Dict[str, Any]
-    execution_time: float
+
 
 @router.post("/accommodation", response_model=AccommodationResponse)
 async def get_accommodation(user_input: TravelPlanRequest, prompt: Optional[str] = None):
@@ -34,13 +34,16 @@ async def get_accommodation(user_input: TravelPlanRequest, prompt: Optional[str]
     
     logger.info("프런트에서 데이터 받음")
     start_time = time.time()
+    logger.info(user_input)
     
     try:
         input_data = user_input.model_dump()
+        logger.info(f"prompt")
         if prompt:
             input_data['prompt'] = prompt         
         try:
-            result = await AccommodationAgentService.create_recommendation_accommodation(input_data)
+            accommodation_service = AccommodationAgentService()  # 싱글톤 인스턴스 가져오기
+            result = await accommodation_service.create_recommendation_accommodation(user_input=input_data)
         except Exception as e:
             logger.error(f"[ERROR] accommodationagentservie create_accommodation_recemmendation() 오류 발생: {e}")
             raise HTTPException(status_code=500, detail="추천 생성 중 오류 발생")

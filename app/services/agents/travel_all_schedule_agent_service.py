@@ -7,8 +7,12 @@ from typing import List, Dict
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from app.utils.time_check import time_check
+from app.repository.members.mebmer_repository import get_memberId_by_email
+from sqlmodel.ext.asyncio.session import AsyncSession
+from redis.asyncio import Redis 
 from app.services.agents.tools.all_schedule_agent_tool import HaversineRouteOptimizer
 import logging
+import json
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -39,7 +43,6 @@ class TravelScheduleAgentService:
                 tools=[self.route_tool],
                 llm=self.llm,
                 verbose=True,
-                
             )
         }
 
@@ -49,65 +52,34 @@ class TravelScheduleAgentService:
         [최종 여행 일정 생성]
 
         입력:
-        - 여행 기간: {start_date} ~ {end_date}
+        - 여행 기간: {start_date} ~ {end_date} (사용자가 선택한 여행 날짜 범위)
         - 여행 지역: {main_location}
         - 외부 데이터: {external_data}
         - 사용 가능한 카테고리: restaurant, cafe, site, accommodation (제공된 카테고리만 사용)
 
         규칙 및 조건:
-        1. 전체 여행 기간 계산 및 날짜별 처리:
-            - 사용자 입력인 {start_date}부터 {end_date}까지 전체 여행 기간을 계산합니다.
-            - 각 날짜는 day_x 값으로 1부터 순차적으로 할당됩니다.
-            - 각 날짜에 대해 반드시 아래의 3개 고정 시간 슬롯이 순서대로 처리됩니다: 08:00, 12:00, 18:00.
-            - 한 날짜의 모든 시간 슬롯 처리가 완료된 후에 다음 날짜로 넘어갑니다.
-            - 새로운 날짜가 시작되면 order 값은 1로 초기화되며, 이전 날짜에서 사용된 장소는 재사용되지 않습니다.
-
-        2. [TIME SLOT CONSTRUCTION] - **고정된 시간 슬롯 사용 (08:00, 12:00, 18:00)**
-            a. 아침 (08:00):
-                - 조건: site 카테고리와 cafe 카테고리가 모두 존재할 때만 생성.
-                - 동작:
-                    * site 데이터에서 1곳 선택.
-                    * cafe 데이터에서 1곳 선택.
-                - 할당: spot_time은 "08:00"으로 고정.
-
-            b. 점심 (12:00):
-                - 조건: restaurant 카테고리와 site 카테고리가 모두 존재할 때만 생성.
-                - 동작:
-                    * restaurant 데이터에서 1곳 선택.
-                    * site 데이터에서 2곳 선택.
-                - 할당: spot_time은 "12:00"으로 고정.
-
-            c. 저녁 (18:00):
-                - 조건:
-                    IF restaurant 카테고리와 accommodation 카테고리가 모두 존재하면:
-                    - 동작:
-                        * restaurant 데이터에서 1곳 선택.
-                        * (마지막 날 제외) accommodation 데이터에서 1곳 선택.
-                    ELSE IF restaurant 카테고리만 존재하면:
-                    - 동작:
-                        * restaurant에서 1곳만 선택.
-                - 할당: spot_time은 "18:00"으로 고정.
-
-        3. [OPTIMIZATION REQUIREMENTS]
-            - 위치 기반 최적화: 제공된 장소들의 위도/경도 정보를 route_tool을 사용하여 이동 거리를 최소화합니다.
-            - 순서 할당:
-                * day_x: 각 날짜별로 1부터 순차적으로 할당.
-                * order: 해당 날짜 내 실제 할당된 시간 슬롯 순서대로 1부터 순차적으로 할당.
-                * spot_time: 위에서 명시한 대로 각각 "08:00", "12:00", "18:00"으로 고정.
-
-        4. [CONSTRAINTS]
-            - 모든 장소는 한 번만 사용됩니다.
-            - 필요한 카테고리가 없는 시간 슬롯은 완전히 생략합니다.
-            - 선택되지 않은 카테고리는 고려하지 않습니다.
-            - 마지막 날에는 숙소(accommodation)가 포함되지 않습니다.
+        1. 일정은 각 날짜별로 생성되며, 전체 여행 기간은 {start_date}부터 {end_date}까지이다.
+        2. 각 날짜별로 생성되는 시간 슬롯은 다음과 같다:
+        - 일반 날짜 (마지막 날짜가 아닌 경우):
+            - spot_time: 13:00 → restaurant (점심 식사)
+            - spot_time: 14:30 → site (첫 번째 관광지 방문)
+            - spot_time: 16:00 → cafe (카페 방문)
+            - spot_time: 17:30 → site (두 번째 관광지 방문)
+            - spot_time: 19:00 → restaurant (저녁 식사)
+            - spot_time: 20:30 → accommodation (숙소; 해당 데이터가 없으면 빈 슬롯)
+            (spot_time은 고정되어 있으며 직접 변경 불가능)
+        - 마지막 날짜 ({end_date}와 동일한 날):
+            - 오직 spot_time: 13:00 → restaurant (점심 식사 후 일정 종료)만 생성
+        3. 각 날짜의 일정이 모두 생성되면, 다음 날짜(day_x 값은 1씩 증가)로 넘어간다.
+        4. 사용 가능한 데이터(restaurant, cafe, site, accommodation) 중에서 조건에 맞게 장소를 선택하며, 한 번 선택된 장소는 재사용하지 않는다.
+        5. 필요한 카테고리가 없는 경우 해당 시간 슬롯은 생략한다.
+        6. 최적의 이동 경로를 위해 제공된 위도/경도 정보를 기반으로 장소들을 재배치한다.
 
         [PROCESS]
-        1. {external_data}에서 사용 가능한 카테고리 확인.
-        2. 가능한 시간 슬롯 조합 결정.
-        3. 각 시간 슬롯별로 장소 할당 (시간 슬롯은 반드시 "08:00", "12:00", "18:00"으로 고정).
-        4. 위치 기반 최적 경로 계산.
-        5. day_x, order, spot_time 값 할당.
-        6. 최종 일정 생성 및 검증.
+        1. 여행 기간을 날짜별로 순회하며 각 날짜에 대해 일정 생성.
+        2. 만약 현재 날짜가 {end_date}와 동일하면, 오직 13:00 슬롯(restaurant)만 생성.
+        3. 그렇지 않으면 13:00, 14:30, 16:00, 17:30, 19:00, 20:30 슬롯을 순차적으로 생성.
+        4. 최종적으로 각 날짜별로 day_x, order, spot_time이 할당된 여행 일정을 생성한다.
         """
         return [Task(
             description=task_description,
@@ -117,10 +89,8 @@ class TravelScheduleAgentService:
             async_execution=True,
         )]
 
-
-
     def _process_result(self, result, input_dict: dict) -> dict:
-        """결과를 처리하는 메서드"""
+        """에이전트 결과를 최종 응답 형태로 가공"""
         return {
             "message": "요청이 성공적으로 처리되었습니다.",
             "plan": {
@@ -132,21 +102,53 @@ class TravelScheduleAgentService:
             },
             "spots": result.pydantic.model_dump()
         }
-    @time_check
-    async def create_plan(self, input_dict: dict) -> dict:
-        """여행 일정 생성 워크플로우 실행"""
-        try:
-            logging.info(f"받은 데이터: {input_dict}")
 
-            # Task 생성
+    @time_check
+    async def create_plan(
+        self,
+        input_dict: dict, 
+        session: AsyncSession = None,
+        redis_client: Redis = None
+    ) -> dict:
+        """
+        여행 일정 생성 워크플로우:
+        1) 이메일 -> member_id 조회(옵션)
+        2) Crew(에이전트) 실행 -> 일정 생성
+        3) Redis에 저장(옵션) -> 디버깅 로그
+        4) 결과 반환
+        """
+        try:
+            logging.info(f"[DEBUG] 받은 데이터: {input_dict}")
+            member_id = None
+
+            # (1) 이메일로 member_id 조회
+            if input_dict.get("email") and session:
+                member_id = await get_memberId_by_email(input_dict["email"], session)
+                logging.info(f"[DEBUG] 💥 이메일 -> member_id 매핑 결과: {member_id}")
+
+            # (2) Crew 실행
             tasks = self._create_tasks()
-            
-            # Crew 실행
             crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True)
             result = await crew.kickoff_async(inputs=input_dict)
-            
-            # 결과 처리
-            return self._process_result(result, input_dict)
+            processed_result = self._process_result(result, input_dict)
+
+            # (3) Redis 저장 (디버깅 로그)
+            # if redis_client and member_id is not None:
+            #     redis_key = str(member_id)  # 키로 member_id 사용
+            #     # 저장 직전에 어떤 데이터인지 확인
+            #     logging.info("[DEBUG] Redis에 저장할 데이터:\n" +
+            #                  json.dumps(processed_result, indent=2, ensure_ascii=False))
+
+            #     # 실제 저장
+            #     await redis_client.set(redis_key, json.dumps(processed_result), ex=86400)
+            #     logging.info(f"[DEBUG] Redis에 key='{redis_key}'로 일정 데이터 저장 완료.")
+
+            #     # 저장 후, 다시 GET 해보기 (간단 검증)
+            #     saved_value = await redis_client.get(redis_key)
+            #     logging.info(f"[DEBUG] Redis에 실제로 저장된 값:\n {saved_value}")
+
+            # (4) 최종 결과 반환
+            return processed_result
 
         except Exception as e:
             traceback.print_exc()

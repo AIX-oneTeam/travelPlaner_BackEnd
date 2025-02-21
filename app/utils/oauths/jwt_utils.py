@@ -6,6 +6,14 @@ from fastapi.security import OAuth2PasswordBearer
 import jwt
 import base64
 import json
+import logging
+from sqlmodel.ext.asyncio.session import AsyncSession
+from app.data_models.data_model import Member
+from app.repository.db import get_async_session, get_async_session_manual
+from app.repository.members.mebmer_repository import get_member_by_email_and_provider
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # 환경 변수 로드
 load_dotenv()
@@ -62,7 +70,7 @@ def verify_jwt_token(token: str = Depends(oauth2_scheme)) -> dict:
         raise e
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_email: str, provider: str) -> str:
     """
     Refresh Token 생성
     """
@@ -72,35 +80,45 @@ def create_refresh_token(user_id: str) -> str:
     # Payload 생성
     payload = {
         'iss': 'EasyTravel',
-        'sub': user_id,
+        'sub': user_email,
         'exp': int(exp_time.timestamp()),
-        'iat': int(current_time.timestamp())
+        'iat': int(current_time.timestamp()),
+        'provider': provider
     }
-
-    # Payload 전체를 Base64로 인코딩
-    encoded_payload = base64_encode(payload)
-
     # JWT 생성
-    refresh_token = jwt.encode({"data": encoded_payload}, JWT_REFRESH_SECRET_KEY, algorithm="HS256")
+    refresh_token = jwt.encode({"data": payload}, JWT_REFRESH_SECRET_KEY, algorithm="HS256")
     return refresh_token
 
-def create_jwt_naver(data: dict, is_refresh: bool = False) -> str:
+def create_jwt_naver(provider: str, data: dict = None, member_info: Member = None) -> str:
     """
-    JWT 생성
-    - is_refresh: True인 경우 리프레시 토큰 생성
+    Access Token 생성
     """
-    to_encode = data.copy()
-    # 만료 시간 설정 (UTC 기준)
-    if is_refresh:
-        expire = datetime.now(datetime.timezone.utc) + datetime.timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    else:
+    to_encode = {}
+    if member_info is not None:
+        current_time = datetime.datetime.utcnow()  # 현재 시간
+        exp_time = current_time + datetime.timedelta(days=1)  # 1일 후 만료
+        to_encode ={
+            "iss": "EasyTravel",  # 발급자
+            "sub": str(member_info.id),  # 사용자 식별자
+            "provider": str(member_info.oauth),  # 소셜 로그인 제공자
+            "nickname": member_info.name,  # 닉네임
+            "email": member_info.email,  # 이메일
+            "profile_image": member_info.picture_url,  # 프로필 이미지
+            "exp": int(exp_time.timestamp()),  # 만료 시간
+            "iat": int(current_time.timestamp())  # 발급 시간
+        }
+
+    if data is not None:
+        to_encode = data.copy()
         expire = datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        to_encode.update({"exp": expire})  # 만료 시간 추가
+        to_encode.update({"provider": provider})
     
-    to_encode.update({"exp": expire})  # 만료 시간 추가
+    
     token = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=ALGORITHM)
     return token
 
-def create_jwt_kakao(provider: str, auth_info: dict) -> str:
+def create_jwt_kakao(provider: str, auth_info: dict = None, member_info: Member = None) -> str:
     """
     Access Token 생성 (사용자 정보 포함)
     """
@@ -108,21 +126,34 @@ def create_jwt_kakao(provider: str, auth_info: dict) -> str:
     exp_time = current_time + datetime.timedelta(days=1)  # 1일 후 만료
 
     # 필요한 사용자 정보를 포함한 Access Token 생성
-    payload = {
-        "iss": "EasyTravel",  # 발급자
-        "sub": str(auth_info.get("id")),  # 사용자 식별자
-        "provider": provider,  # 소셜 로그인 제공자
-        "nickname": auth_info.get("properties", {}).get("nickname"),  # 닉네임
-        "email": auth_info.get("kakao_account", {}).get("email"),  # 이메일
-        "profile_image": auth_info.get("properties", {}).get("profile_image"),  # 프로필 이미지
-        "exp": int(exp_time.timestamp()),  # 만료 시간
-        "iat": int(current_time.timestamp())  # 발급 시간
-    }
+    if auth_info is not None:
+        payload = {
+            "iss": "EasyTravel",  # 발급자
+            "sub": str(auth_info.get("id")),  # 사용자 식별자
+            "provider": provider,  # 소셜 로그인 제공자
+            "nickname": auth_info.get("properties", {}).get("nickname"),  # 닉네임
+            "email": auth_info.get("kakao_account", {}).get("email"),  # 이메일
+            "profile_image": auth_info.get("properties", {}).get("profile_image"),  # 프로필 이미지
+            "exp": int(exp_time.timestamp()),  # 만료 시간
+            "iat": int(current_time.timestamp())  # 발급 시간
+            }
+    
+    if member_info is not None:
+        payload = {
+            "iss": "EasyTravel",  # 발급자
+            "sub": str(member_info.id),  # 사용자 식별자
+            "provider": str(member_info.oauth),  # 소셜 로그인 제공자
+            "nickname": member_info.name,  # 닉네임
+            "email": member_info.email,  # 이메일
+            "profile_image": member_info.picture_url,  # 프로필 이미지
+            "exp": int(exp_time.timestamp()),  # 만료 시간
+            "iat": int(current_time.timestamp())  # 발급 시간
+        }
     print("Access Token Payload:", payload)  # 디버깅: 생성된 payload 확인
     token = jwt.encode(payload, JWT_SECRET_KEY, algorithm="HS256")
     return token
 
-def create_jwt_google(provider: str, auth_info: dict) -> str:
+def create_jwt_google(provider: str, auth_info: dict = None, member_info: Member = None) -> str:
     """
     Access Token 생성 (사용자 정보 포함)
     """
@@ -130,20 +161,32 @@ def create_jwt_google(provider: str, auth_info: dict) -> str:
     exp_time = current_time + datetime.timedelta(days=1)  # 1일 후 만료
 
     # 필요한 사용자 정보를 포함한 Access Token 생성
-    payload = {
-        "iss": "EasyTravel",  # 발급자
-        "sub": str(auth_info.get("id")),  # 사용자 식별자
-        "provider": provider,  # 소셜 로그인 제공자
-        "nickname": auth_info.get("name"),  # 닉네임
-        "email": auth_info.get("email"),  # 이메일
-        "profile_image": auth_info.get("picture"),  # 프로필 이미지
-        "exp": int(exp_time.timestamp()),  # 만료 시간
-        "iat": int(current_time.timestamp())  # 발급 시간
-    }
-
+    if auth_info is not None:
+        payload = {
+            "iss": "EasyTravel",  # 발급자
+            "sub": str(auth_info.get("id")),  # 사용자 식별자
+            "provider": provider,  # 소셜 로그인 제공자
+            "nickname": auth_info.get("name"),  # 닉네임
+            "email": auth_info.get("email"),  # 이메일
+            "profile_image": auth_info.get("picture"),  # 프로필 이미지
+            "exp": int(exp_time.timestamp()),  # 만료 시간
+            "iat": int(current_time.timestamp())  # 발급 시간
+        }
+    if member_info is not None:
+        payload = {
+            "iss": "EasyTravel",  # 발급자
+            "sub": str(member_info.id),  # 사용자 식별자
+            "provider": str(member_info.oauth),  # 소셜 로그인 제공자
+            "nickname": member_info.name,  # 닉네임
+            "email": member_info.email,  # 이메일
+            "profile_image": member_info.picture_url,  # 프로필 이미지
+            "exp": int(exp_time.timestamp()),  # 만료 시간
+            "iat": int(current_time.timestamp())  # 발급 시간
+        }
     print("Access Token Payload:", payload)  # 디버깅: 생성된 payload 확인
     token = jwt.encode(payload, JWT_SECRET_KEY, algorithm="HS256")
     return token
+    
 
 def decode_jwt_naver(token: str) -> dict:
     """
@@ -158,15 +201,43 @@ def decode_jwt_naver(token: str) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-def refresh_access_token_naver(refresh_token: str) -> str:
+async def refresh_access_token(refresh_token: str) -> str:
     """
     리프레시 토큰으로 새 액세스 토큰 발급
     """
     try:
         # 리프레시 토큰 디코딩
         payload = decode_jwt(refresh_token)
-        # 새 액세스 토큰 생성
-        new_access_token = create_jwt_naver({"id": payload["id"], "email": payload["email"]})
+        logger.info(f"💡[ jwt_utils ] refresh_access_token() payload : {payload}")
+        logger.info(f"💡[ jwt_utils ] refresh_access_token() payload type : {type(payload)}")
+
+        # TODO: 리프레시 토큰 검증
+
+        # 새 액세스 토큰 생성 (python 3.10 이상)
+        email = payload["data"]["sub"]
+        provider = payload["data"]["provider"]
+        logger.info(f"💡[ jwt_utils ] refresh_access_token() email : {email}")
+        logger.info(f"💡[ jwt_utils ] refresh_access_token() provider : {provider}")
+
+        # 수동 세션 획득
+        session = await get_async_session_manual()
+        member_info = await get_member_by_email_and_provider(email, provider, session)
+        await session.commit();
+        await session.close()
+
+        match provider:
+            case "naver":
+                new_access_token = create_jwt_naver(provider=provider, member_info = member_info)
+            case "kakao":
+                new_access_token = create_jwt_kakao(provider=provider, member_info = member_info)
+            case "google":
+                new_access_token = create_jwt_google(provider=provider, member_info = member_info)
+
         return new_access_token
-    except HTTPException as e:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    except Exception as e:
+        logger.error(f"[ jwt_utils ] refresh_access_token() 에러 : {e}")
+        raise HTTPException(status_code=401, detail="올바르지 않은 리프레시 토큰입니다.")
+
+
+
+
