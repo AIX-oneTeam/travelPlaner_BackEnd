@@ -45,8 +45,16 @@ test_cases = [
     "경남"
 ]
 
-for case in test_cases:
-    result = validate_address(case)
-    print(f"입력: {case}")
-    print(f"출력: {result}")
-    print()
+valid_prefixes =  validate_address("전북특별자치도 - 여수시")
+print(valid_prefixes )
+valid_results = [{"address": "전북특별자치도 여수시"},{"address": "전북 여수시"}, {"address": "전라북도 여수시"}]
+filtered_results = []
+for place_data in valid_results:
+    addr = place_data.get("address", "")
+    if any(addr.startswith(prefix) for prefix in valid_prefixes):
+        filtered_results.append(place_data)
+    else:
+        print(f"주소 '{addr}'가 유효 접두어 {valid_prefixes} 중 하나로 시작하지 않아 필터링됨.")
+
+print(filtered_results)
+    

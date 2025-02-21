@@ -96,7 +96,7 @@ class NaverBlogSearchTool(BaseTool):
         basic_queries = [simplified_location + " 카페", simplified_location + " 느좋 카페"]
         queries = basic_queries + keywords_queries
         logger.info(f"사용한 검색어 : {queries}")
-
+        valid_prefixes = validate_address(main_location)
         async with httpx.AsyncClient() as client:
 
             # 쿼리별 서치
@@ -119,8 +119,7 @@ class NaverBlogSearchTool(BaseTool):
                 if error_results:
                     logger.error(f"[Cafetool] Crawling Errors: {error_results}")
                 
-                # 초기 단계에서 주소 필터링: validate_address가 반환하는 접두어로 시작하는지 확인
-                valid_prefixes = validate_address(main_location)
+                            # 여기서 valid_results를 한 번에 필터링
                 filtered_results = []
                 for place_data in valid_results:
                     addr = place_data.get("address", "")
@@ -128,7 +127,7 @@ class NaverBlogSearchTool(BaseTool):
                         filtered_results.append(place_data)
                     else:
                         logger.info(f"주소 '{addr}'가 유효 접두어 {valid_prefixes} 중 하나로 시작하지 않아 필터링됨.")
-                        
+
                 place_dict = {}
                 for place_data in valid_results:
                     place_id = place_data['placeId']
