@@ -11,7 +11,9 @@ from redis import Redis
 from app.repository.db import get_async_session
 from app.repository.fcmToken.fcm_token_respository import get_fcm_token
 from app.repository.redis_client import get_redis
-from app.services.agents.travel_all_schedule_agent_service import TravelScheduleAgentService
+from app.services.agents.travel_all_schedule_agent_service import (
+    TravelScheduleAgentService,
+)
 from app.services.agents.site_agent_service import TouristAgentService
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
@@ -53,7 +55,7 @@ async def generate_plan(
     request: Request,
     user_input: TravelPlanRequest,
     session: AsyncSession = Depends(get_async_session),
-    redis_client: Redis = Depends(get_redis)
+    redis_client: Redis = Depends(get_redis),
 ):
     try:
         print("프론트에서 받은 데이터:", user_input)
@@ -80,7 +82,11 @@ async def generate_plan(
             tasks["cafe"] = cafe_agent_service.create_recommendation_cafe(input_data=input_dict, session=session, redis_client= redis_client)
         if "accommodation" in agent_type:
             accommodation_agent_service = AccommodationAgentService()
-            tasks["accommodation"] = accommodation_agent_service.create_recommendation_accommodation(input_dict)
+            tasks["accommodation"] = (
+                accommodation_agent_service.create_recommendation_accommodation(
+                    input_dict
+                )
+            )
 
         # 비동기 작업 병렬 실행 및 결과 매핑
         results = await asyncio.gather(*tasks.values())
@@ -90,12 +96,15 @@ async def generate_plan(
         input_dict["external_data"] = external_data
         logging.info(f"라우터받은 데이터----------------: {input_dict}")
 
-
         # 최종 여행 일정 생성 함수 호출 (외부 데이터 포함)
-        result = await travel_schedule_agent_service.create_plan(input_dict,session=session,redis_client=redis_client)
+        result = await travel_schedule_agent_service.create_plan(
+            input_dict, session=session, redis_client=redis_client
+        )
 
         # 푸시 메시지 전송
-        await send_push_message(request, session, "EasyTravel 알림", "에이전트가 일을 마쳤습니다.")
+        await send_push_message(
+            request, session, "EasyTravel 알림", "에이전트가 일을 마쳤습니다."
+        )
 
         return {
             "status": "success",
