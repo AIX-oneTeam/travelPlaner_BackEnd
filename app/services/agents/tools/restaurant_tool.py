@@ -9,7 +9,16 @@ from typing import List, Dict, Union
 from dotenv import load_dotenv
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("restaurant_agent_tools")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/restaurant_agent.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 # 환경 변수 로드
 load_dotenv()
