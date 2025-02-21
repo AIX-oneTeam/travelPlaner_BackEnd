@@ -225,5 +225,5 @@ yarl==1.18.3
 zipp==3.21.0
 aiomysql==0.2.0
 pyfcm==2.0.7
-
-
+edge-tts==7.0.0
+python-multipart==0.0.20

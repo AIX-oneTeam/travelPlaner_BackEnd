@@ -34,7 +34,7 @@ async def send_push_message(request:Request, session:AsyncSession, title:str, bo
             member_id = await get_member_id_by_request(request, session)
             if member_id is not None:
                 token = await get_fcm_token(member_id, session)
-                logger.info("💡[ travel_all_schedule_agent_router ] token : ", token)
+                logger.info(f"💡[ travel_all_schedule_agent_router ] token : {token}")
                 if token is not None:
                     notify_message_to_one(token=token, title=title, body=body)
                 else:
