@@ -3,12 +3,11 @@ from crewai import Agent, Task, Crew, LLM, Process
 from app.dtos.spot_models import spots_pydantic
 from app.utils.calculate_trip_days import calculate_trip_days
 from app.services.agents.tools.cafe_tool import NaverBlogSearchTool,NaverReviewCralwerTool, NaverBusinessInfoTool
-from typing import Dict, Optional
+from typing import Dict
 import os
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
 from redis.asyncio import Redis
-import json
 import logging
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.repository.agents.plan_spots_repository import (
@@ -62,10 +61,10 @@ class CafeAgentService:
     def _create_agents(self) -> Dict[str, Agent]:
         return {
             "collector" : Agent(
-                role="카페 검색 및 위치 검증가",
-                goal="카페를 검색하고 고객의 여행 지역에 위치하지 않은 카페는 삭제합니다.",
+                role="카페 리스트 수집 전문가",
+                goal="고객의 여행 지역에 위치한 카페를 검색하고 리스트를 생성합니다.",
                 backstory="""
-                블로그에서 사용자의 조건에 맞는 카페를 검색하고, 고객의 여행 지역에 위치하지 않은 카페는 리스트에서 삭제해주세요. 
+                블로그에서 사용자의 조건에 맞는 카페를 검색하고, 리스트를 생성합니다. 
                 포스팅된 횟수가 많은 카페부터 내림차순으로 정렬해주세요
                 """,
                 tools=[self.get_cafe_search_tool],
@@ -119,13 +118,12 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영해 keywords라는 이름의 리스트를 생성하고 키워드를 추가하세요.
-                - 키워드 리스트의 길이는 최소 1개에서 최대 3개입니다.
+                - 키워드 리스트의 길이는 최소 1개에서 최대 2개입니다.
                 - "해산물"처럼 카페와 상관 없는 키워드는 생성하지 마세요.
                 - 각 키워드는 형용사 또는 명사인 하나의 단어여야 하고, 비슷한 의미를 가진 단어는 1개만 사용하세요.
-                - 1개로 충분하다면 불필요하게 3개 까지 생성하지 마세요.
+                - 1개로 충분하다면 불필요하게 2개 까지 생성하지 마세요.
                 - 키워드로 "카페" 또는 "지역명" 또는 "추천"은 사용하지 마세요.
                 2. tool 사용시 "{main_location}"과 리스트 타입의 "keywords"를 순서대로 input값으로 사용하세요.
-                3. 지역이 {main_location}에 위치하지 않는 곳은 삭제해주세요.
                 """,
                 expected_output="""
                 n_posting이 큰 순으로 내림차순 해주세요.
@@ -146,7 +144,7 @@ class CafeAgentService:
                 description="""
                 1. collector가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
                 2. tool의 output을 보고 카페의 세부 정보를 수집하고, category에 "카페" 또는 "베이커리" 또는 "디저트"가 포함 되지 않은 장소는 삭제해주세요.
-                3. collector가 반환한 값과 tool의 outputd의 정보를 합쳐 반환해주세요.
+                3. collector가 반환한 값과 tool의 output의 정보를 합쳐 반환해주세요.
                 """,
                 expected_output="""
                 n_posting이 큰 순으로 내림차순 해주세요.
@@ -174,7 +172,7 @@ class CafeAgentService:
                 3. researcher가 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
                 4. 카페 특징은 고객 요구사항에 맞는 카페인지 점검할 수 있도록 구체적으로 써주세요.
                 5. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
-                description에는 카페 이름, 나이(연령), 부정적인 내용은 반드시 제외해주세요.
+                description에는 카페 이름(kor_name), 나이대(ages), 부정적인 내용은 반드시 제외해주세요.
                 preference에는 최신 리뷰를 읽고 전체 리뷰 중 긍정적인 리뷰가 얼마나 많은가에 대한 선호도를 %로 나타내주세요.
                 """,
                 expected_output="""
@@ -221,7 +219,7 @@ class CafeAgentService:
             member_id = ""
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session) or ""
-                logger.info(f"cafe- member_id 조회됨: {bool(member_id)}")
+                logger.info(f"member_id 존재: {bool(member_id)}")
 
             # 2. 필수 요소 존재 여부 로깅
             logger.info(f"email 존재: {bool(input_data.get('email'))}")
@@ -245,7 +243,7 @@ class CafeAgentService:
             input_data["n"] = 5 if input_data.get("prompt") else days * 2
             input_data["existing_spot_names"] = []
             input_data["member_id"] = member_id
-            
+
             # 6. 캐싱된 카페 수가 충분하면 draft 에이전트를 사용
             if (not input_data.get("prompt")) and len(cached_cafe_lists) >= days * 2:
                 try:

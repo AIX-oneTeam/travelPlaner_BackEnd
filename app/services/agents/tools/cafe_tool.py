@@ -1,11 +1,10 @@
-from collections import defaultdict
 import itertools
 import json
 import httpx
 import asyncio
 from dotenv import load_dotenv
 from crewai.tools import BaseTool
-from typing import List, Dict, Optional
+from typing import List, Optional
 import os
 from bs4 import BeautifulSoup
 import json
@@ -14,6 +13,8 @@ import re
 from app.utils.simplify_address import simplify_address
 import random
 import logging
+
+from app.utils.validate_address import validate_address
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -27,13 +28,13 @@ class NaverBlogSearchTool(BaseTool):
     description: str = "블로그를 검색하고 url에서 카페 정보 추출"
     
     async def _fetch_query(self, client: httpx.AsyncClient, query: str) -> str:
-
+        await asyncio.sleep(random.uniform(0.05, 0.2))
         url = "https://openapi.naver.com/v1/search/blog.json"
         headers = {
             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
             "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
         }
-        params = {"query": query, "display": 20, "start": 1, "sort": "sim"}
+        params = {"query": query, "display": 10, "start": 1, "sort": "sim"}
         try:
             resp = await client.get(url, headers=headers, params=params)
             resp.raise_for_status()
@@ -53,7 +54,7 @@ class NaverBlogSearchTool(BaseTool):
             return []
     
     async def _fetch_blog_data(self, client: httpx.AsyncClient, url: str) -> str:
-        # await asyncio.sleep(random.uniform(0.1, 0.5))
+        await asyncio.sleep(random.uniform(0.05, 0.2))
         url = url.replace('https://blog.naver.com', 'https://m.blog.naver.com')
         headers = {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
@@ -78,7 +79,7 @@ class NaverBlogSearchTool(BaseTool):
                                     
             return {
                 "placeId": placeId,
-                "ko_name": data.get("name", "정보 없음"),
+                "kor_name": data.get("name", "정보 없음"),
                 "address": data.get("address", "정보 없음"),
                 "latitude": data.get("latitude", 0),
                 "longitude": data.get("longitude", 0),
@@ -91,22 +92,15 @@ class NaverBlogSearchTool(BaseTool):
     async def _arun(self, main_location: str, keywords: Optional[list]=["느좋"]) -> str:
         
         simplified_location = simplify_address(main_location)
-        
-        keywords_query = f"{simplified_location} 카페 {' '.join(keywords)}"
-        
-        querys =[keywords_query, simplified_location+" 카페"]
-        logger.info(f"사용한 검색어 : {querys}")
-        
-        semaphore = asyncio.Semaphore(5)
-        
-        async def bounded_fetch(client, urls):
-            async with semaphore:
-                return await self._fetch_blog_data(client, urls)
-        
+        keywords_queries = [f"{simplified_location} {keyword} 카페" for keyword in keywords]
+        basic_queries = [simplified_location + " 카페", simplified_location + " 느좋 카페"]
+        queries = basic_queries + keywords_queries
+        logger.info(f"사용한 검색어 : {queries}")
+
         async with httpx.AsyncClient() as client:
 
             # 쿼리별 서치
-            search_tasks = [self._fetch_query(client, query) for query in querys]
+            search_tasks = [self._fetch_query(client, query) for query in queries]
             search_results = await asyncio.gather(*search_tasks)
  
             # 중첩 리스트 평탄화
@@ -116,7 +110,7 @@ class NaverBlogSearchTool(BaseTool):
             
             if cafe_urls:
                 # 크롤링
-                crawling_tasks = [bounded_fetch(client, urls) for urls in cafe_urls]
+                crawling_tasks = [self._fetch_blog_data(client, urls) for urls in cafe_urls]
                 crawling_results = await asyncio.gather(*crawling_tasks)
 
                 valid_results = [result for result in crawling_results if isinstance(result, dict)]
@@ -125,6 +119,16 @@ class NaverBlogSearchTool(BaseTool):
                 if error_results:
                     logger.error(f"[Cafetool] Crawling Errors: {error_results}")
                 
+                # 초기 단계에서 주소 필터링: validate_address가 반환하는 접두어로 시작하는지 확인
+                valid_prefixes = validate_address(main_location)
+                filtered_results = []
+                for place_data in valid_results:
+                    addr = place_data.get("address", "")
+                    if any(addr.startswith(prefix) for prefix in valid_prefixes):
+                        filtered_results.append(place_data)
+                    else:
+                        logger.info(f"주소 '{addr}'가 유효 접두어 {valid_prefixes} 중 하나로 시작하지 않아 필터링됨.")
+                        
                 place_dict = {}
                 for place_data in valid_results:
                     place_id = place_data['placeId']
@@ -136,7 +140,7 @@ class NaverBlogSearchTool(BaseTool):
                         # 새로 추가할 때 n_posting = 1로 설정
                         place_dict[place_id] = {
                             "placeId": place_data.get("placeId") or "정보 없음",
-                            "ko_name": place_data.get("ko_name") or "정보 없음",
+                            "kor_name": place_data.get("kor_name") or "정보 없음",
                             "address": place_data.get("address") or "정보 없음",
                             "latitude": place_data.get("latitude") or "0",
                             "longitude": place_data.get("longitude") or "0",
@@ -176,6 +180,7 @@ class NaverReviewCralwerTool(BaseTool):
     description: str = "네이버 리뷰를 크롤링해 카페 후기 추출"
 
     async def _fetch_review_data(self, client: httpx.AsyncClient, placeId: str) -> str:
+        await asyncio.sleep(random.uniform(0.05, 0.2))
         url = f"https://m.place.naver.com/restaurant/{placeId}/review/visitor?reviewSort=recent"
         headers = {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
@@ -232,7 +237,7 @@ class NaverBusinessInfoTool(BaseTool):
         """
         비동기 정보 스크래퍼. 네이버 지도에서 카페를 정적 크롤링을 통해 검색하고 정보를 가져오는 도구.
         """
-
+        await asyncio.sleep(random.uniform(0.05, 0.2))
         url = f"https://m.place.naver.com/restaurant/{placeId}/home"
         headers = {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
@@ -301,461 +306,4 @@ class NaverBusinessInfoTool(BaseTool):
 # result = await info_tool._arun(placeIds)
 # print(result)
     
-                    
-#---아래부터 사용하지 않는 툴-------------------------------------------------------------
-
-# from bs4 import BeautifulSoup
-# from selenium import webdriver
-# from selenium.webdriver.common.by import By
-# from selenium.webdriver.support.ui import WebDriverWait
-# from selenium.webdriver.support import expected_conditions as EC
-# import asyncio
-# import aiohttp       
-# import emoji
-# from crewai.tools import BaseTool
-# import json
-# from crewai.tools import BaseTool
-# from typing import Type
-# from pydantic import BaseModel, Field
-
-# from dotenv import load_dotenv
-# import os
-
-# load_dotenv()
-
-# # 네이버 API 관련 환경변수
-# AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
-# AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")
-
-# class WebDriver:
-#     _driver = None
-#     _instance = None
-    
-#     def __new__(cls):
-#         if cls._instance is None:
-#             cls._instance = super().__new__(cls)
-#             cls._instance._initialize_driver()
-#         return cls._instance
-        
-#     def _initialize_driver(self):
-#         """WebDriver를 한 번만 초기화"""
-#         if WebDriver._driver is None:
-#             options = webdriver.ChromeOptions()
-#             options.add_argument("--headless")
-#             options.add_argument('--no-sandbox')
-#             options.add_argument('--disable-dev-shm-usage')
-#             options.add_argument("user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Mobile Safari/537.36")
-#             WebDriver._driver = webdriver.Chrome(options=options)    
-
-#     def get_driver(self):
-#         """WebDriver 인스턴스를 반환하는 메서드"""
-#         return WebDriver._driver        
-
-#     def quit_driver(self):
-#         """WebDriver 종료 메서드"""
-#         if WebDriver._driver:
-#             WebDriver._driver.quit()
-#             WebDriver._driver = None
-         
-# def cafe_list_crawler(query):
-#     """
-#     네이버 지도에서 카페 정보를 크롤링하는 함수
-#     Args:
-#         query (str): 검색어
-#     Returns:
-#         list: 카페 정보 리스트
-#     """
-#     web_driver_instance = WebDriver()
-#     driver = web_driver_instance.get_driver() 
-#     spots_info = []
-    
-#     try:
-#         url = f"https://m.map.naver.com/search2/search.naver?query={query}"
-#         driver.get(url)
-
-#         # 페이지 로딩 대기
-#         WebDriverWait(driver, 10).until(
-#             lambda d: d.execute_script("return document.readyState") == "complete"
-#         )
-      
-#         spots = WebDriverWait(driver, 10).until(
-#             EC.visibility_of_all_elements_located((By.CSS_SELECTOR, "li._lazyImgContainer")))
-                
-#         for spot in spots:
-#             placeId = spot.get_attribute("data-id")
-#             map_url = f"https://m.place.naver.com/restaurant/{placeId}/location?filter=location&selected_place_id={placeId}"
-#             url = f"https://m.place.naver.com/restaurant/{placeId}/home"
-#             # 테스트 : https://m.place.naver.com/restaurant/1932943275/location?reviewSort=recent&filter=location&selected_placeId=1932943275
-
-#             try:
-#                 address = spot.find_element(By.CLASS_NAME, "item_address").text.strip().replace("주소보기\n", "")
-#             except:
-#                 address = "주소 없음"
-
-#             try:
-#                 image_url = spot.find_element(By.CLASS_NAME, "_itemThumb").find_element(By.TAG_NAME, "img").get_attribute("src")
-#             except:
-#                 image_url = "이미지 없음"
-                
-#             spot_info = {
-#                 "placeId": str(placeId),
-#                 "kor_name": spot.get_attribute("data-title"),
-#                 "address": address,
-#                 "url": url,
-#                 "image_url": image_url,
-#                 "map_url" : map_url,
-#                 "latitude": spot.get_attribute("data-latitude"),
-#                 "longitude": spot.get_attribute("data-longitude"),
-#                 "phone_number": spot.get_attribute("data-tel")
-#             }
-#             spots_info.append(spot_info)
-        
-#         print(f"가져온 카페 개수: {len(spots_info)}")
-#         return spots_info
-
-#     except Exception as e:
-#         print(f"검색 오류 : {e}")
-#         return []
-    
-#     finally:
-#         WebDriver().quit_driver()    
-        
-# async def fetch_review(session, placeId):
-#     """
-#     비동기 리뷰 스크래퍼. 네이버 지도에서 카페를 정적 크롤링을 통해 검색하고 리뷰를 가져오는 도구.
-#     """
-#     url = f"https://m.place.naver.com/restaurant/{placeId}/review/visitor?reviewSort=recent"
-#     headers = {
-#         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-#         "Referer": "https://m.place.naver.com/"
-#     }
-    
-#     async with session.get(url, headers=headers) as response:
-#         if response.status != 200:
-#             print(f"{placeId} 요청 실패: {response.status}")
-#             return {"placeId": placeId, "reviews": []}
-
-#         html = await response.text()
-#         soup = BeautifulSoup(html, "html.parser")
-#         reviews = soup.find_all("div", class_="pui__vn15t2")
-#         reviews_list = [emoji.replace_emoji(review.text, replace='') for review in reviews]
-#         # print(len(reviews_list)) #10개 리뷰
-#         return {
-#             "placeId": placeId,
-#             "reviews": reviews_list
-#         }
-
-# async def fetch_business(session, placeId):
-#     """
-#     비동기 정보 스크래퍼. 네이버 지도에서 카페를 정적 크롤링을 통해 검색하고 정보를 가져오는 도구.
-#     """
-
-#     url = f"https://m.place.naver.com/restaurant/{placeId}/home"
-#     headers = {
-#         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-#         "Referer": "https://m.place.naver.com/"
-#     }
-    
-#     async with session.get(url, headers=headers) as response:
-#         if response.status != 200:
-#             print(f"{placeId} 요청 실패: {response.status}")
-#             return {"placeId": placeId, "reviews": []}
-
-#         html = await response.text()
-#         soup = BeautifulSoup(html, "html.parser")
-        
-#         try:
-#             div_tag = soup.find("div", class_="jO09N")
-#             a_tag = div_tag.find("a") if div_tag else None
-#             url = a_tag["href"] if a_tag else "정보 없음"
-
-#             business_span = soup.find("span", class_="U7pYf")
-#             business_hour = business_span.find("span").text if business_span and business_span.find("span") else "정보 없음"
-
-#         except Exception as e:
-#             print(f"Parsing error: {e}")
-#             url = "정보 없음"
-#             business_hour = "정보 없음"
-        
-#         return {
-#             "placeId": placeId,
-#             "url": url,
-#             "business_hour": business_hour
-#         }
-                         
-# class QuerySchema(BaseModel):
-#     query: str = Field(
-#         ..., description="여행 지역 + 카페"
-#     )
-    
-# class GetCafeListTool(BaseTool):
-#     """네이버 크롤링을 통해 카페 정보 수집"""
-#     name: str = "Cafe List and Information Tool"
-#     description: str = """
-#     네이버 지도에서 카페를 검색하고 정보를 가져오는 도구입니다.
-#     검색이 완료되면 카페 목록을 반환하고 작업을 종료합니다.
-#     한 번의 검색으로 충분한 정보를 제공합니다.
-#     """
-#     args_schema: Type[BaseModel] = QuerySchema
-#     _loop = None
-    
-#     def __init__(self):
-#         super().__init__()
-#         if self._loop is None:
-#             self._loop = asyncio.new_event_loop()
-#             asyncio.set_event_loop(self._loop)
-    
-#     # 리소스 정리        
-#     def __del__(self):            
-#         if self._loop and not self._loop.is_closed():
-#             self._loop.close()
-
-#     async def _collect_reviews(self, cafe_list):
-#         async with aiohttp.ClientSession() as session:
-#             tasks = [fetch_review(session, cafe["placeId"]) for cafe in cafe_list]
-#             return await asyncio.gather(*tasks)
-     
-#     async def _collect_business_info(self, cafe_list):
-#         async with aiohttp.ClientSession() as session:
-#             tasks = [fetch_business(session, cafe["placeId"]) for cafe in cafe_list]
-#             return await asyncio.gather(*tasks)
-            
-#     def _run(self, query: str) -> str:
-#         try:
-#             cafe_list = cafe_list_crawler(query)
-
-#             reviews = self._loop.run_until_complete(self._collect_reviews(cafe_list))
-            
-#             for cafe, review in zip(cafe_list, reviews):
-#                 cafe['reviews'] = review.get('reviews', [])
-
-#             business_info = self._loop.run_until_complete(self._collect_business_info(cafe_list))
-            
-#             for cafe, info in zip(cafe_list, business_info):
-#                 cafe['url'] = info.get('url', '')
-#                 cafe['business_hour'] = info.get('business_hour', '')    
-            
-#             return json.dumps({
-#                 "status": "success",
-#                 "count": len(cafe_list),
-#                 "cafe_list": cafe_list
-#             }, ensure_ascii=False)
-
-#         except Exception as e:
-#             print(f"Execution error: {e}")
-#             return json.dumps({
-#                 "status": "error",
-#                 "message": str(e)
-#             })        
-
-
-# from crewai.tools import BaseTool
-
-# from pydantic import BaseModel, Field
-# from typing import Any, Type
-# import json
-# import requests
-# import os
-# from dotenv import load_dotenv
-
-# load_dotenv()
-# SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-# NAVER_placeId = os.getenv("NAVER_placeId")
-# NAVER_PLACE_SECRET = os.getenv("NAVER_PLACE_SECRET")
-
-# class QuerySchema(BaseModel):
-#     query: str = Field(
-#         ..., description="Mandatory search query for searching places on the map"
-#     )
-    
-# class GoogleMapSearchTool(BaseTool):
-#     """구글 맵 검색 API를 사용해 텍스트 정보를 검색"""
-#     name: str = "Google MapSearch"
-#     description: str = "구글 맵 검색 API를 사용해 텍스트 정보를 검색"
-#     args_schema: Type[BaseModel] = QuerySchema
-    
-#     def _run(self, query: str) -> str:
-#         if not SERPER_API_KEY:
-#             return "[GoogleMapSearchTool] serper.dev API 자격 증명이 없습니다."
-
-#         payload = json.dumps({
-#         "q": query
-#         })
-        
-#         url = "https://google.serper.dev/maps"
-#         headers = {
-#             "X-API-KEY": os.environ["SERPER_API_KEY"],
-#             "content-type": "application/json",
-#         }
-
-#         try:
-#             with requests.Session() as session:
-#                 resp = session.post(url, headers=headers, data=payload)
-
-#             resp.raise_for_status()
-#             data = resp.json()
-#             places = data.get("places", [])
-
-#             if not places:
-#                 return f"[GoogleMapSearchTool] '{query}' 검색 결과 없음."
-
-#             results = []
-#             for place in places:
-#                 title = place.get("title", "")
-#                 address = place.get("address", "")
-#                 latitude = place.get("latitude", "")
-#                 longitude = place.get("longitude", "")
-#                 website = place.get("website", "")                                               
-#                 phoneNumber = place.get("phoneNumber", "")
-#                 openingHours = place.get("openingHours", "")
-#                 thumbnailUrl = place.get("thumbnailUrl", "")                                          
-#                 map_url = f"https://www.google.com/maps/place/?q=placeId:{place.get('placeId', '')}"
-#                 results.append(f"이름: {title}\n주소: {address}\n위도: {latitude}\n경도: {longitude}\n홈페이지: {website}\n전화번호: {phoneNumber}\n운영시간: {openingHours}\n썸네일: {thumbnailUrl}\n지도주소: {map_url}\n---")
-
-#             return "\n".join(results)
-
-#         except Exception as e:
-#             return f"[GoogleMapSearchTool] 에러: {str(e)}"
-
-# # tool = GoogleMapSearchTool()
-# # result = tool._run("강남 마들렌")
-# # print(result)
-
-# class NaverLocalSearchTool(BaseTool):
-#     """네이버 local 검색 API를 사용해 텍스트 정보를 검색"""
-#     name: str = "네이버 local Search Tool"
-#     description: str = "네이버 local 검색 API를 사용해 카페 정보를 검색"
-#     args_schema: Type[BaseModel] = QuerySchema
-    
-#     def _run(self, query, display=1, start=1, sort="random")-> str:
-        
-#         search_url = "https://openapi.naver.com/v1/search/local.json"
-#         headers = {
-#             "X-Naver-Client-Id": NAVER_placeId,
-#             "X-Naver-Client-Secret": NAVER_PLACE_SECRET,
-#         }
-
-#         params = {
-#             "query": query,
-#             "display": display,
-#             "start": start,
-#             "sort": sort,
-#         }
-
-#         with requests.Session() as session:
-#             response = session.get(search_url, headers=headers, params=params)
-
-#         results = []
-#         if response.status_code == 200:
-#             result = response.json()
-#             cafes = result.get("items",[])
   
-#             if not cafes:  # 검색 결과가 없으면 오류 방지
-#                 return f"[NaverLocalSearchTool] '{query}'에 대한 검색 결과가 없습니다."
-
-#             # 첫 번째 결과가 있는지 확인 후 접근
-#             first_cafe = cafes[0] if len(cafes) > 0 else {}
-
-#             title = first_cafe.get('title', '정보 없음')
-#             address = first_cafe.get('roadAddress', '정보 없음')
-#             url = first_cafe.get('link', '정보 없음')
-  
-#             results.append(f"이름: {title}\n주소: {address}\n웹사이트: {url}---")
-#             return "\n".join(results)
-
-#         else:
-#             print("Error:", response.status_code, response.text)
-#             return None
-    
-
-# # tool = HomeURLSearchTool()
-# # result = tool._run("강남 마들마들")
-# # print(result)
-# from pydantic import BaseModel
-# from typing import Type
-
-
-# class MultiToolWrapper(BaseTool):
-#     """두 개의 툴을 동시에 실행하는 툴"""
-#     name: str = "Multi Tool Wrapper"
-#     description: str = "크로스체크를 위해 google map과 naver local api를 이용하는 툴"
-#     args_schema: Type[BaseModel] = QuerySchema
-    
-#     def __init__(self, google_tool: GoogleMapSearchTool, naver_tool: NaverLocalSearchTool):
-#         super().__init__()
-#         self._google_tool = google_tool 
-#         self._naver_tool = naver_tool
-        
-#     def _run(self, query: str) -> str:
-#         google_search_result = self._google_tool._run(query)
-#         naver_search_result = self._naver_tool._run(query)
-        
-#         return f"구글 맵 검색 결과:\n{google_search_result}\n\n 네이버 로컬 검색 결과:\n{naver_search_result}"
-
-
-
-#---------------------
-# class NaverBlogSearchTool(BaseTool):
-#     name: str = "NaverBlogSearch"
-#     description: str = "네이버 웹 검색 API를 사용해 카페 검색"
-
-#     async def _fetch_query(self, client: httpx.AsyncClient, query: str) -> str:
-
-#         url = "https://openapi.naver.com/v1/search/blog.json"
-#         headers = {
-#             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
-#             "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
-#         }
-#         params = {"query": query, "display": 20, "start": 1, "sort": "sim"}
-#         try:
-#             resp = await client.get(url, headers=headers, params=params)
-#             resp.raise_for_status()
-#             data = resp.json()
-#             items = data.get("items", [])
-#             if not items:
-#                 return f"[NaverBlogSearchTool] '{query}' 검색 결과 없음."
-#             results = []
-#             for item in items:
-#                 title = item.get("title", "")
-#                 link = item.get("link", "")
-#                 desc = item.get("description", "")
-#                 results.append(f"제목: {title}\n링크: {link}\n설명: {desc}\n")
-#             result_text = "\n".join(results)
-#             return f"검색 쿼리: {query}\n결과:\n{result_text}"
-#         except Exception as e:
-#             return f"[NaverBlogSearchTool] 검색 쿼리 {query} 에러: {str(e)}"
-        
-#     async def _arun(self, main_location: str, keywords:List[str]) -> str:
-#         if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
-#             return "[NaverBlogSearchTool] 네이버 API 자격 증명이 없습니다."
-        
-#         simplified_location = simplify_address(main_location)
-#         # keywords가 비어있으면 기본 검색어를 사용
-#         if keywords:
-#             keywords_query = f"{simplified_location} 카페 +{' +'.join(keywords)}"
-#         else:
-#             keywords_query = f"{simplified_location} 카페"
-        
-#         querys =[keywords_query, simplified_location+" 카페", simplified_location+" 느좋 카페"]
-        
-#         async with httpx.AsyncClient() as client:
-#             # 각 검색어마다 비동기 요청(task)을 생성합니다.
-#             tasks = [self._fetch_query(client, query) for query in querys]
-#             results = await asyncio.gather(*tasks)
-#             # 각 검색 결과를 구분하기 위해 빈 줄 두 개로 연결
-#             return "\n---------------\n".join(results)
-            
-#     def _run(self, main_location: str, keywords:List[str]) -> str:
-#         return asyncio.run(self._arun(main_location, keywords))
-
-# async def main():
-#     print("Client ID:", AGENT_NAVER_CLIENT_ID)
-#     print("Client Secret:", AGENT_NAVER_CLIENT_SECRET)
-
-#     blog_tool = NaverBlogSearchTool()
-#     result = await blog_tool._arun("서울특별시 - 강남구", ["힐링", "오션뷰"])
-#     print(result)
-
-# # 비동기 함수 실행
-# if __name__ == "__main__":
-#     asyncio.run(main())
