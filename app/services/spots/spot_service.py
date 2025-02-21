@@ -11,7 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 async def reg_spot(spot: Spot, session: AsyncSession):
-    logger.info("💡[ spot_service ] reg_spot() 호출 : ", spot)
+    logger.info(f"💡[ spot_service ] reg_spot() 호출 : {spot}")
     spot_id = await save_spot(spot, session)
     return spot_id
 

@@ -4,9 +4,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# member_id와 plan_id로 plan 조회 장소 조회
-async def get_member_plan_spots(plan_id: int, member_id: int, session: AsyncSession):
+"""
+member_id와 plan_id로 category별 plan 조회 장소 조회
+    0: 숙소 
+    1: 관광지
+    2: 맛집
+    3: 카페
+"""
+async def get_member_plan_spots(plan_id: int, member_id: int, category_id:int, session: AsyncSession):
     try:
         # plan과 member_id 검증을 위한 쿼리
         plan_stmt = select(Plan).where(
@@ -29,7 +34,7 @@ async def get_member_plan_spots(plan_id: int, member_id: int, session: AsyncSess
                 and_(
                     PlanSpotMap.plan_id == plan_id,
                     Plan.member_id == member_id,
-                    Spot.spot_category == 2,
+                    Spot.spot_category == category_id,
                 )
             )
         )
