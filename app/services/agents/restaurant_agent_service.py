@@ -125,8 +125,8 @@ class RestaurantAgentService:
             ),
             "restaurant_search": Agent(
                 role="맛집 기본 조회 전문가",
-                goal="좌표 정보를 활용하여 식당의 기본 정보를 조회한다.",
-                backstory="나는 맛집 데이터 분석 전문가로, Google Maps API를 사용하여 특정 위치의 식당 정보를 조회한다.",
+                goal="좌표 정보를 활용하여 식당의 title, rating, reviews를 조회한다.",
+                backstory="나는 맛집 데이터 분석 전문가로, Google Maps API를 사용하여 특정 위치의 식당의 title, rating, reviews를 조회한다.",
                 tools=[self.restaurant_search_tool],
                 llm=self.llm,
                 verbose=True,
@@ -198,8 +198,9 @@ class RestaurantAgentService:
                 expected_output="좌표와 3개의 맛집 검색 키워드",
             ),
             "search_task": Task(
-                description="""{start_date}부터 {end_date}까지의 여행 일정에 맞춰서 맛집을 조회해주세요.
-                기존에 추천되었던 {existing_spot_names} 식당들은 제외하고 정보를 조회해주세요.""",
+                description="""{start_date}부터 {end_date}까지의 여행 일정에 맞춰서, 
+                기존에 추천되었던 {existing_spot_names} 식당들을 제외한 가져온 모든 맛집의 title, rating, reviews 정보를 조회해주세요.
+                """,
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
             ),
@@ -209,22 +210,12 @@ class RestaurantAgentService:
                 동반자({companion_count})를 위한
                 {prompt_text}
 
-                제공된 맛집 목록 중에서, 검색된 전체 맛집 수보다 2개 적게 추천해야 합니다.
-                예를 들어, 13개의 맛집이 검색되었다면 최종 추천은 11개가 되어야 합니다.
-
-                ### 맛집 선별 및 추천 규칙:
-                1. **여행 일정에 따른 추천 개수 계산 방법**  
-                - 추천 개수 = (검색된 맛집 수) - 2  
-                - 예시:
-                    * 1일 여행 (7개 검색): 5개 추천  
-                    * 2일 여행 (10개 검색): 8개 추천  
-                    * 3일 여행 (13개 검색): 11개 추천  
-                    * 4일 여행 (16개 검색): 14개 추천  
+                여행 일정에 따라, 검색된 맛집 수에서 2개를 제외한 수만큼 식당을 추천해야 합니다. 
+                여행 일수는 ({end_date} - {start_date}) + 1로 계산되며, 1일 여행이면 7개 식당이 검색되고, 이후 매일 3개씩 증가합니다. 
+                예를 들어, 1일 여행: 7개 검색 → 5개 추천, 2일 여행: 10개 검색 → 8개 추천, 3일 여행: 13개 검색 → 11개 추천, 4일 여행: 16개 검색 → 14개 추천입니다.
 
                 2. **선별 기준**  
-                - 하루 3끼 기준으로 일정에 맞게 구성할 것  
-                - 동반자의 연령대 및 특성을 고려한 적합성 평가  
-                - 방문 시간대와 위치를 고려하여 효율적인 동선 구성  
+                - 동반자의 연령대 및 특성을 고려한 적합성 평가    
                 - 동일 식당 또는 동일 프랜차이즈 지점은 중복해서 추천하지 말 것  
 
                 3. **필수 검토사항**  
@@ -256,7 +247,7 @@ class RestaurantAgentService:
                     - 공식 웹사이트가 없으면 null을 입력할 것.
                     - 우선순위: 공식 웹사이트 > 네이버/카카오 지도 링크 > 공식 SNS 페이지 > 맛집 리뷰 사이트 URL.
                 - **business_status**: 공식 정보(웹사이트 등)를 기준으로, 영업 중이면 true, 아니면 false로 입력할 것.
-                - **business_hours**: 공식 정보(웹사이트 등)를 기준으로 '11:00 - 22:00' 형식으로 작성하고, 공식 정보가 없으면 수집된 데이터를 바탕으로 추정하여 입력할 것.
+                - **business_hours**: 공식 정보(웹사이트 등)를 기준으로 '09:00 - 22:00' 형식으로 작성하고, 공식 정보가 없으면 수집된 데이터를 바탕으로 추정하여 입력할 것.
                 """,
                 agent=self.agents["final_recommendation"],
                 expected_output="최종 추천 맛집 리스트",
@@ -406,7 +397,6 @@ class RestaurantAgentService:
                 else:
                     # 기존 일정 수정의 경우 - DB 사용
                     current_plan_id = input_data.get("plan_id")
-                    print(f"🟡 current_plan_id: {current_plan_id}")
 
                     try:
                         # 현재 plan이 해당 member의 것인지 확인
@@ -445,7 +435,9 @@ class RestaurantAgentService:
             processed_input["prompt_text"] = prompt_text
 
             # 원본 데이터 보관 및 문자열 변환 분리
-            processed_input["original_companion_count"] = input_data.get("companion_count", [])  # 원본 보관
+            processed_input["original_companion_count"] = input_data.get(
+                "companion_count", []
+            )  # 원본 보관
             processed_input["companion_count"] = ", ".join(
                 [f"{c['label']} {c['count']}명" for c in input_data["companion_count"]]
             )
