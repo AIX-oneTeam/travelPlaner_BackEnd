@@ -195,9 +195,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
     error_details = exc.errors()  # Pydantic 검증 오류 내용 가져오기
 
-    logger.info("요청 데이터:", request_data)  # 콘솔 출력 (디버깅)
+    logger.info(f"요청 데이터: {request_data}")  # 콘솔 출력 (디버깅)
 
-    logger.info("검증 실패:", error_details)  # 오류 정보 출력
+    logger.info(f"검증 실패: {error_details}")  # 오류 정보 출력
 
 
     return JSONResponse(

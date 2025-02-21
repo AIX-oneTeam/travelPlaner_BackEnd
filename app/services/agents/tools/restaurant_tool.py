@@ -8,6 +8,7 @@ from crewai.tools import BaseTool
 from typing import List, Dict, Union
 from dotenv import load_dotenv
 import logging
+
 logger = logging.getLogger(__name__)
 
 # 환경 변수 로드
@@ -54,7 +55,7 @@ async def check_url_openable_async(url: str) -> bool:
         return False
 
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=3) as client:
             response = await client.head(url, follow_redirects=True)
             if 200 <= response.status_code < 400:
                 return True
@@ -63,6 +64,7 @@ async def check_url_openable_async(url: str) -> bool:
     except Exception as e:
         logger.error(f"Error checking URL '{url}': {e}")
         return False
+
 
 # 1. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
 class GeocodingTool(BaseTool):
@@ -90,6 +92,7 @@ class GeocodingTool(BaseTool):
 
     def _run(self, location: str) -> Dict:
         return asyncio.run(self._arun(location))
+
 
 # 2. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
 class RestaurantBasicSearchTool(BaseTool):
@@ -169,13 +172,18 @@ class RestaurantBasicSearchTool(BaseTool):
                     f"키워드 '{simplified_keyword}' 첫 요청 결과 수: {len(results)} (필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상)"
                 )
 
+                tasks = []
                 for place in results:
-                    if len(collected) >= remaining_count:
-                        break
-
                     place_id = place.get("place_id")
                     if place_id:
-                        details = await self.get_place_details(session, place_id)
+                        tasks.append(self.get_place_details(session, place_id))
+                if tasks:
+                    details_list = await asyncio.gather(*tasks, return_exceptions=True)
+                    for details in details_list:
+                        if len(collected) >= remaining_count:
+                            break
+                        if isinstance(details, Exception):
+                            continue
                         if (
                             details
                             and details["rating"] >= filter_rating
@@ -184,6 +192,7 @@ class RestaurantBasicSearchTool(BaseTool):
                         ):
                             collected.append(details)
                             collected_names.add(details["title"])
+                # ---------------------------------------------------------------------
 
                 next_page_token = data.get("next_page_token")
 
@@ -199,15 +208,22 @@ class RestaurantBasicSearchTool(BaseTool):
                                 f"키워드 '{simplified_keyword}' 추가 요청 결과 수: {len(new_results)}"
                             )
 
+                            tasks = []
                             for place in new_results:
-                                if len(collected) >= remaining_count:
-                                    break
-
                                 place_id = place.get("place_id")
                                 if place_id:
-                                    details = await self.get_place_details(
-                                        session, place_id
+                                    tasks.append(
+                                        self.get_place_details(session, place_id)
                                     )
+                            if tasks:
+                                details_list = await asyncio.gather(
+                                    *tasks, return_exceptions=True
+                                )
+                                for details in details_list:
+                                    if len(collected) >= remaining_count:
+                                        break
+                                    if isinstance(details, Exception):
+                                        continue
                                     if (
                                         details
                                         and details["rating"] >= filter_rating
@@ -216,6 +232,7 @@ class RestaurantBasicSearchTool(BaseTool):
                                     ):
                                         collected.append(details)
                                         collected_names.add(details["title"])
+                            # -----------------------------------------------------------------
 
                             next_page_token = data.get("next_page_token")
 
@@ -339,35 +356,46 @@ class NaverWebSearchTool(BaseTool):
             "start": 1,
             "sort": "sim",
         }
-        try:
-            async with session.get(url, headers=headers, params=params) as response:
-                data = await response.json()
-                items = data.get("items", [])
-                if not items:
-                    return {"description": "정보를 찾을 수 없습니다.", "url": ""}
-                descriptions = []
-                for item in items:
-                    desc = item.get("description", "").strip()
-                    if desc and len(desc) > 30:
-                        descriptions.append(desc)
-                combined_description = " ".join(descriptions)
-                return {
-                    "description": (
-                        combined_description[:200]
-                        if len(combined_description) > 200
-                        else combined_description
-                    ),
-                    "url": items[0].get("link", "") if items else "",
-                }
-        except Exception as e:
-            logger.error(f"네이버 웹 검색 오류: {str(e)}")
-            return {"description": "정보 없음", "url": ""}
+
+        max_attempts = 2
+        for attempt in range(max_attempts):
+            try:
+                async with session.get(url, headers=headers, params=params) as response:
+                    data = await response.json()
+                    items = data.get("items", [])
+                    if items:
+                        descriptions = []
+                        for item in items:
+                            desc = item.get("description", "").strip()
+                            if desc and len(desc) > 30:
+                                descriptions.append(desc)
+                        combined_description = " ".join(descriptions)
+                        return {
+                            "description": (
+                                combined_description[:200]
+                                if len(combined_description) > 200
+                                else combined_description
+                            ),
+                            "url": items[0].get("link", "") if items else "",
+                        }
+                    else:
+                        logger.warning(
+                            f"[네이버 웹 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
+                        )
+            except Exception as e:
+                logger.error(
+                    f"네이버 웹 검색 오류 시도 {attempt+1}/{max_attempts}: {str(e)}"
+                )
+            await asyncio.sleep(1)  # 재시도 전 잠시 대기
+        return {"description": "정보를 찾을 수 없습니다.", "url": ""}
 
     async def _arun(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurant_list:
-                results[restaurant] = await self.fetch(session, restaurant)
+            tasks = [self.fetch(session, restaurant) for restaurant in restaurant_list]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            for restaurant, response in zip(restaurant_list, responses):
+                results[restaurant] = response
         return results
 
     def _run(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
@@ -399,24 +427,30 @@ class NaverImageSearchTool(BaseTool):
             "sort": "sim",
             "filter": "all",
         }
-        try:
-            async with session.get(url, headers=headers, params=params) as response:
-                data = await response.json()
-                items = data.get("items", [])
-                if not items:
-                    return "https://via.placeholder.com/300x200?text=No+Image"
 
-                # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
-                for item in items:
-                    img_url = item.get("link", "")
-                    if await check_url_openable_async(img_url):
-                        return img_url
-
-                # 만약 모두 접근 불가능하다면, 기본 이미지 URL 반환
-                return "https://via.placeholder.com/300x200?text=No+Image"
-        except Exception as e:
-            logger.error(f"네이버 이미지 검색 오류: {str(e)}")
-            return "https://via.placeholder.com/300x200?text=Error"
+        max_attempts = 2
+        for attempt in range(max_attempts):
+            try:
+                async with session.get(url, headers=headers, params=params) as response:
+                    data = await response.json()
+                    items = data.get("items", [])
+                    if not items:
+                        logger.warning(
+                            f"[네이버 이미지 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
+                        )
+                    else:
+                        # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
+                        for item in items:
+                            img_url = item.get("link", "")
+                            if await check_url_openable_async(img_url):
+                                return img_url
+            except Exception as e:
+                logger.error(
+                    f"네이버 이미지 검색 오류 시도 {attempt+1}/{max_attempts}: {str(e)}"
+                )
+            await asyncio.sleep(1)  # 재시도 전 잠시 대기
+        # 모든 시도 실패 시 None 반환
+        return None
 
     async def _arun(
         self, restaurant_list: Union[List[str], List[Dict], Dict]
@@ -447,8 +481,10 @@ class NaverImageSearchTool(BaseTool):
 
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurants:
-                results[restaurant] = await self.fetch(session, restaurant)
+            tasks = [self.fetch(session, restaurant) for restaurant in restaurants]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            for restaurant, response in zip(restaurants, responses):
+                results[restaurant] = response
         return results
 
     def _run(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
@@ -480,46 +516,53 @@ class KakaoLocalSearchTool(BaseTool):
             f"{location} {name.split()[0]}",  # "해운대 할매집"
         ]
 
+        max_attempts = 2
         for query in search_queries:
-            logger.info(f"[카카오 로컬 검색어 시도]: {query}")
-            params = {
-                "query": query,
-                "category_group_code": "FD6",
-                "size": 1,
-            }
-
-            try:
-                async with session.get(url, headers=headers, params=params) as response:
-                    data = await response.json()
-                    documents = data.get("documents", [])
-
-                    if documents:
-                        place = documents[0]
-                        place_id = place.get("id")
-
-                        result = {
-                            "kor_name": name,
-                            "address": place.get("road_address_name")
-                            or place.get("address_name", ""),
-                            "latitude": float(place.get("y", 0)) or None,
-                            "longitude": float(place.get("x", 0)) or None,
-                            "map_url": (
-                                f"https://map.kakao.com/link/map/{place_id}"
-                                if place_id
-                                else ""
-                            ),
-                            "phone_number": place.get("phone", ""),
-                            # "category_name": place.get("category_name", ""),
-                        }
-                        logger.info(
-                            f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
-                        )
-                        return result
-
-            except Exception as e:
-                logger.error(f"카카오 로컬 검색 오류: {str(e)}")
-                continue
-
+            for attempt in range(max_attempts):
+                logger.info(
+                    f"[카카오 로컬 검색어 시도]: {query} (시도 {attempt+1}/{max_attempts})"
+                )
+                params = {
+                    "query": query,
+                    "category_group_code": "FD6",
+                    "size": 1,
+                }
+                try:
+                    async with session.get(
+                        url, headers=headers, params=params
+                    ) as response:
+                        data = await response.json()
+                        documents = data.get("documents", [])
+                        if documents:
+                            place = documents[0]
+                            place_id = place.get("id")
+                            result = {
+                                "kor_name": name,
+                                "address": place.get("road_address_name")
+                                or place.get("address_name", ""),
+                                "latitude": float(place.get("y", 0)) or None,
+                                "longitude": float(place.get("x", 0)) or None,
+                                "map_url": (
+                                    f"https://map.kakao.com/link/map/{place_id}"
+                                    if place_id
+                                    else ""
+                                ),
+                                "phone_number": place.get("phone", ""),
+                                # "category_name": place.get("category_name", ""),
+                            }
+                            logger.info(
+                                f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
+                            )
+                            return result
+                        else:
+                            logger.warning(
+                                f"[카카오 로컬 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
+                            )
+                except Exception as e:
+                    logger.error(
+                        f"카카오 로컬 검색 오류 시도 {attempt+1}/{max_attempts}: {str(e)}"
+                    )
+                await asyncio.sleep(1)  # 재시도 전 잠시 대기
         logger.warning(
             f"[카카오 로컬 검색 실패] 모든 검색어 시도 실패: {search_queries}"
         )
@@ -542,7 +585,7 @@ class KakaoLocalSearchTool(BaseTool):
         results = []
         async with aiohttp.ClientSession() as session:
             tasks = [self.fetch(session, name, location) for name in restaurant_names]
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         return results
 
     def _run(self, restaurant_names: List[str], location: str) -> List[Dict]:

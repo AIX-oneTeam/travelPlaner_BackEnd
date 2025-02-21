@@ -1,6 +1,6 @@
 import logging
 import os
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import asyncio
@@ -72,7 +72,7 @@ async def generate_plan(
         if "restaurant" in agent_type:
             restaurant_service = RestaurantAgentService()
             tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(
-                input_dict
+                input_data=input_dict, session=session, redis_client=redis_client
             )
 
         if "site" in agent_type:
@@ -85,10 +85,9 @@ async def generate_plan(
             logging.info(f"Site Agent 결과: {tasks['site']}")
         if "cafe" in agent_type:
             cafe_agent_service = CafeAgentService()
-            tasks["cafe"] = cafe_agent_service.create_cafe_recommendation(
-                input_dict, redis_client=redis_client
+            tasks["cafe"] = cafe_agent_service.create_recommendation_cafe(
+                input_data=input_dict, session=session, redis_client=redis_client
             )
-
         if "accommodation" in agent_type:
             accommodation_agent_service = AccommodationAgentService()
             tasks["accommodation"] = (
