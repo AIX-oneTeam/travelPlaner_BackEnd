@@ -54,9 +54,11 @@ class TravelPlanRequest(BaseModel):
 async def generate_plan(
     request: Request,
     user_input: TravelPlanRequest,
-    agent_type: List[str] = Query(..., alias="agent_type[]"),
+    agent_type: List[str] = Query(
+        default=["restaurant"], alias="agent_type[]"
+    ),
     session: AsyncSession = Depends(get_async_session),
-    redis_client: Redis = Depends(get_redis)
+    redis_client: Redis = Depends(get_redis),
 ):
     try:
         print("프론트에서 받은 데이터:", user_input)

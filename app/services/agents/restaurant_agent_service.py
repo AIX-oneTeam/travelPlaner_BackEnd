@@ -1,7 +1,7 @@
 import traceback
 import json
 from datetime import datetime
-from crewai import Agent, Task, Crew, LLM
+from crewai import Agent, Task, Crew, LLM, Process
 from typing import List, Dict, Optional
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
@@ -36,6 +36,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # 🟡: 기존 일정 수정(DB)
 # 🟣: redis
 
+
 class RestaurantAgentService:
     """식당 추천을 위한 Agent 서비스"""
 
@@ -57,6 +58,13 @@ class RestaurantAgentService:
         self.image_search_tool = NaverImageSearchTool()
         self.kakao_local_search_tool = KakaoLocalSearchTool()
         self.agents = self._create_agents()
+        self.tasks = self._create_tasks()
+        
+        self.tasks["keyword_task"].context = [self.tasks["geocoding_task"]]
+        self.tasks["search_task"].context = [self.tasks["keyword_task"]]
+        self.tasks["recommendation_task"].context = [self.tasks["search_task"]]
+        self.tasks["image_task"].context = [self.tasks["recommendation_task"]]
+        self.tasks["detail_task"].context = [self.tasks["image_task"]]
 
     def _process_input(
         self, input_data: dict, prompt: Optional[str] = None
@@ -156,27 +164,27 @@ class RestaurantAgentService:
             ),
         }
 
-    def _create_tasks(self, input_data: dict, prompt_text: str) -> List[Task]:
+    def _create_tasks(self) -> Dict[str, Task]:
         """Task들을 생성하는 메서드"""
-        return [
-            Task(
-                description=f"{input_data['main_location']}의 좌표 조회",
+        return {
+            "geocoding_task": Task(
+                description="{main_location}의 좌표 조회",
                 agent=self.agents["geocoding"],
                 expected_output="위치 좌표",
             ),
-            Task(
-                description=f"""이전 Task에서 얻은 좌표와 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
+            "keyword_task": Task(
+                description="""이전 Task에서 얻은 좌표와 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
                 # 입력 정보
-                지역: {input_data['main_location']}
+                지역: {main_location}
                 좌표: 이전 태스크에서 생성된 좌표 결과
-                여행 기간: {input_data['start_date']} ~ {input_data['end_date']}
-                연령대: {input_data['ages']}
-                동반자: {', '.join([f"{c['label']} {c['count']}명" for c in input_data['companion_count']])}
+                여행 기간: {start_date} ~ {end_date}
+                연령대: {ages}
+                동반자: {companion_count}
                 {prompt_text}
 
                 # 규칙
                 1. 정확히 3개의 검색 키워드를 생성할 것
-                2. 각 키워드는 "{input_data['main_location']} + 목적" 형식으로 구성할 것
+                2. 각 키워드는 "{main_location} + 목적" 형식으로 구성할 것
                 3. 실제 검색에 효과적인 구체적인 키워드로 구성할 것
                 4. 반드시 음식점(식당)과 관련된 키워드만 생성할 것. 카페, 숙소 등 음식점과 직접 연관되지 않은 업종의 키워드는 포함되지 않는 것
                 5. 반환 형식은 다음과 같이 할 것:
@@ -188,17 +196,16 @@ class RestaurantAgentService:
                 agent=self.agents["keyword_extraction"],
                 expected_output="좌표와 3개의 맛집 검색 키워드",
             ),
-            Task(
-                description=f"""{input_data['start_date']}부터 {input_data['end_date']}까지의 여행 일정에 맞춰서 맛집을 조회해주세요.
-                기존에 추천되었던 {input_data.get('existing_spot_names', [])} 식당들은 제외하고 정보를 조회해주세요.
-                """,
+            "search_task": Task(
+                description="""{start_date}부터 {end_date}까지의 여행 일정에 맞춰서 맛집을 조회해주세요.
+                기존에 추천되었던 {existing_spot_names} 식당들은 제외하고 정보를 조회해주세요.""",
                 agent=self.agents["restaurant_search"],
                 expected_output="맛집 기본 정보 리스트",
             ),
-            Task(
-                description=f"""{input_data['main_location']} 지역의 맛집 데이터를 최신 검색 결과를 활용하여 수집하고,
-                {input_data['start_date']}부터 {input_data['end_date']}까지 여행하는 {input_data['ages']} 연령대의 고객과 
-                동반자({', '.join([f"{c['label']} {c['count']}명" for c in input_data['companion_count']])})를 위한
+            "recommendation_task": Task(
+                description="""{main_location} 지역의 맛집 데이터를 최신 검색 결과를 활용하여 수집하고,
+                {start_date}부터 {end_date}까지 여행하는 {ages} 연령대의 고객과 
+                동반자({companion_count})를 위한
                 {prompt_text}
 
                 제공된 맛집 목록 중에서, 검색된 전체 맛집 수보다 2개 적게 추천해야 합니다.
@@ -251,8 +258,8 @@ class RestaurantAgentService:
                 agent=self.agents["final_recommendation"],
                 expected_output="최종 추천 맛집 리스트",
             ),
-            Task(
-                description=f"""최종 추천된 맛집 리스트에 포함된 식당들의 이미지를 검색하고,  
+            "image_task": Task(
+                description="""최종 추천된 맛집 리스트에 포함된 식당들의 이미지를 검색하고,  
                 기존 JSON 형식을 유지하면서 **image_url 필드만 업데이트**하라.  
                 반드시 아래 JSON 스키마를 따르며, 정확하고 누락 없이 정보를 반환할 것.  
 
@@ -292,8 +299,8 @@ class RestaurantAgentService:
                 agent=self.agents["image_search"],
                 expected_output="네이버 이미지 검색 API 또는 기타 신뢰할 수 있는 출처를 활용하여 업데이트된 맛집 리스트",
             ),
-            Task(
-                description=f"""최종 추천된 맛집 리스트에 포함된 식당들에 대해 {input_data['main_location']} 지역을 포함하여 **카카오 로컬 API**를 사용하여 상세 정보를 수집하라.  
+            "detail_task": Task(
+                description="""최종 추천된 맛집 리스트에 포함된 식당들에 대해 {main_location} 지역을 포함하여 **카카오 로컬 API**를 사용하여 상세 정보를 수집하라.  
                 기존 데이터를 유지하면서 다음 필드들을 업데이트해야 한다.  
 
                 ### **필수 수집 정보**:
@@ -314,8 +321,8 @@ class RestaurantAgentService:
                 - 정보가 없는 경우 해당 필드는 `null`로 설정할 것.
 
                 ### **검색 주의사항**:
-                - 모든 식당 검색 시 "{input_data['main_location']}"을 포함하여 검색할 것.  
-                - 정확한 검색을 위해 지역명을 검색어 앞에 추가할 것 (예: "{input_data['main_location']} 식당이름").
+                - 모든 식당 검색 시 "{main_location}"을 포함하여 검색할 것.  
+                - 정확한 검색을 위해 지역명을 검색어 앞에 추가할 것 (예: "{main_location} 식당이름").
 
                 위 기준을 적용하여 **카카오 로컬 API를 활용한 상세 정보를 반환**하라.
                 """,
@@ -323,7 +330,7 @@ class RestaurantAgentService:
                 expected_output="카카오 로컬 API로 업데이트된 맛집 리스트",
                 output_pydantic=spots_pydantic,
             ),
-        ]
+        }
 
     def _process_result(self, result, input_data: dict) -> dict:
         """결과를 처리하는 메서드"""
@@ -346,7 +353,7 @@ class RestaurantAgentService:
                 "ages": input_data.get("ages", 0),
                 "companion_count": sum(
                     companion.get("count", 0)
-                    for companion in input_data.get("companion_count", [])
+                    for companion in input_data.get("original_companion_count", [])
                 ),
                 "concepts": ", ".join(input_data.get("concepts", [])),
                 "member_id": input_data.get("member_id", 0),
@@ -435,20 +442,25 @@ class RestaurantAgentService:
             # 1. 입력 데이터 전처리
             processed_input, prompt_text = self._process_input(input_data, prompt)
             processed_input["existing_spot_names"] = existing_spot_names
+            processed_input["prompt_text"] = prompt_text
 
-            # 2. Task 생성
-            tasks = self._create_tasks(processed_input, prompt_text)
+            # 원본 데이터 보관 및 문자열 변환 분리
+            processed_input["original_companion_count"] = input_data.get("companion_count", [])  # 원본 보관
+            processed_input["companion_count"] = ", ".join(
+                [f"{c['label']} {c['count']}명" for c in input_data["companion_count"]]
+            )
 
             # 3. Crew 실행
             crew = Crew(
-                tasks=tasks,
                 agents=list(self.agents.values()),
+                tasks=list(self.tasks.values()),
+                process=Process.sequential,
                 verbose=True,
                 memory=True,
             )
 
             # 4. 결과 실행 및 처리
-            result = await crew.kickoff_async()
+            result = await crew.kickoff_async(inputs=processed_input)
             processed_result = self._process_result(result, processed_input)
             print(f"⭐️ processed_result: {processed_result}")
 

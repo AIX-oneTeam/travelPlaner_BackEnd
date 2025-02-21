@@ -456,6 +456,7 @@ class NaverImageSearchTool(BaseTool):
 
 
 # 5. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
+# 5. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
 class KakaoLocalSearchTool(BaseTool):
     name: str = "KakaoLocalSearch"
     description: str = "카카오 로컬 API를 사용해 식당의 위치 정보를 검색합니다."
@@ -509,14 +510,8 @@ class KakaoLocalSearchTool(BaseTool):
                                 else ""
                             ),
                             "phone_number": place.get("phone", ""),
+                            # "category_name": place.get("category_name", ""),
                         }
-
-                        # 추가: 카카오 이미지 검색 API를 사용해 이미지 URL 가져오기
-                        image_url = await self.fetch_image(
-                            session, f"{location} {name}"
-                        )
-                        result["image_url"] = image_url
-
                         logger.info(
                             f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
                         )
@@ -529,33 +524,7 @@ class KakaoLocalSearchTool(BaseTool):
         logger.warning(
             f"[카카오 로컬 검색 실패] 모든 검색어 시도 실패: {search_queries}"
         )
-        # 검색 실패 시, 이미지 필드를 빈 문자열로 추가한 기본 결과 반환
-        empty_result = self._get_empty_result(name)
-        empty_result["image_url"] = ""
-        return empty_result
-
-    async def fetch_image(self, session: aiohttp.ClientSession, query: str) -> str:
-        """
-        카카오 이미지 검색 API를 사용해 식당 이미지 URL을 가져오는 메서드
-        """
-        image_url = ""
-        url = "https://dapi.kakao.com/v2/search/image"
-        headers = {"Authorization": f"KakaoAK {KAKAO_LOCAL_API_KEY}"}
-        params = {"query": query, "size": 1, "sort": "accuracy"}
-
-        try:
-            async with session.get(url, headers=headers, params=params) as response:
-                data = await response.json()
-                documents = data.get("documents", [])
-                if documents:
-                    image_url = documents[0].get("image_url", "")
-                    logger.info(
-                        f"[카카오 이미지 검색 성공] 검색어: {query}, 이미지 URL: {image_url}"
-                    )
-        except Exception as e:
-            logger.error(f"카카오 이미지 검색 오류: {str(e)}")
-
-        return image_url
+        return self._get_empty_result(name)
 
     def _get_empty_result(self, name: str) -> dict:
         """검색 실패 시 기본값 반환"""
@@ -566,6 +535,7 @@ class KakaoLocalSearchTool(BaseTool):
             "longitude": None,
             "map_url": "",
             "phone_number": "",
+            # "category_name": "",
         }
 
     async def _arun(self, restaurant_names: List[str], location: str) -> List[Dict]:
