@@ -52,6 +52,35 @@ class GeoCoordinateTool(BaseTool):
         except Exception as e:
             return f"[GeoCoordinateTool] 에러: {str(e)}"      
 
+# 2. 서퍼 호텔 툴
+class GoogleHotelSearchTool(BaseTool):
+    name: str = "Google Hotel Search"
+    description: str = "구글 호텔 검색 API를 사용하여 텍스트 정보를 검색"
+    
+    def _run(self, main_location: str, start_date: str, end_date: str, adults: int, children: int,keyword_list: str ) -> str:
+        try:
+            search_query = f"{main_location} 숙소 {keyword_list}".strip()            
+            params = {
+                "engine": "google_hotels",
+                'q': search_query, 
+                "check_in_date": start_date,
+                "check_out_date": end_date,
+                "adults": adults,
+                "children": children,
+                "currency": "KRW",
+                "gl": "kr",
+                "hl": "ko",
+                "api_key": GOOGLE_API_KEY
+            }
+            
+            search = GoogleSearch(params)
+            hotel_results = search.get_dict()
+            print(f"전체 HOTEL API 응답: {hotel_results}")
+            return hotel_results
+        
+        except Exception as e:
+            return f"[GoogleHotelSearchTool] 에러: {str(e)}" 
+               
 # 2. 구글 플레이스 툴 
 class GooglePlaceTool(BaseTool):
     name: str = "GooglePlaceTool"
@@ -80,7 +109,7 @@ class GooglePlaceTool(BaseTool):
         except Exception as e:
             return f"[GooglePlaceTool] 에러: {str(e)}"
 
-# 구글 리뷰 툴 
+# 4. 구글 리뷰 툴 
 class GoogleReviewTool(BaseTool):
     name: str = "GoogleReviewTool"
     description: str = "구글 리뷰 API를 이용, 리뷰 검색 툴 "
@@ -107,61 +136,5 @@ class GoogleReviewTool(BaseTool):
         except Exception as e:
             return f"[GoogleReviewTool] 에러: {str(e)}"
         
-# 구글 호텔 툴
-class GoogleHotelSearchTool(BaseTool):
-    name: str = "Google Hotel Search"
-    description: str = "구글 호텔 검색 API를 사용하여 텍스트 정보를 검색"
-    
-    def _run(self, main_location: str, start_date: str, end_date: str, adults: int, children: int,keyword_list: str ) -> str:
-        try:
-            search_query = f"{main_location} {keyword_list}".strip()            
-            params = {
-                "engine": "google_hotels",
-                'q': search_query, 
-                "check_in_date": start_date,
-                "check_out_date": end_date,
-                "adults": adults,
-                "children": children,
-                "currency": "KRW",
-                "gl": "kr",
-                "hl": "ko",
-                "api_key": GOOGLE_API_KEY
-            }
-            
-            search = GoogleSearch(params)
-            hotel_results = search.get_dict()
-            print(f"전체 HOTEL API 응답: {hotel_results}")
-            return hotel_results
-        
-        except Exception as e:
-            return f"[GoogleHotelSearchTool] 에러: {str(e)}" 
-               
         
 
-class GoogleImageUrlTool(BaseTool):
-    name: str = "Google Hotel Search"
-    description: str = "구글 호텔 검색 API를 사용하여 텍스트 정보를 검색"
-    
-    def _run(self, location: str, start_date: str, end_date:str,adults: int, children: int) -> str:
-        try:            
-            
-            params = {
-                "engine": "google_maps",
-                'q': f"{location} 숙소", 
-                "check_in_date": start_date,
-                "check_out_date": end_date,
-                "adults": adults,
-                "children": children,
-                "currency": "KRW",
-                "gl": "kr",
-                "hl": "ko",
-                "api_key": GOOGLE_API_KEY
-            }
-            
-            search = GoogleSearch(params)
-            hotel_results = search.get_dict()
-            print(f"전체 HOTEL API 응답: {hotel_results}")
-            return hotel_results
-        
-        except Exception as e:
-            return f"[GoogleHotelSearchTool] 에러: {str(e)}"                

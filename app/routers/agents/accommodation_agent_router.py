@@ -32,17 +32,16 @@ class AccommodationResponse(BaseModel):
 async def get_accommodation(user_input: TravelPlanRequest, prompt: Optional[str] = None):
     """숙소 추천 엔드포인트"""
     
-    logger.info("프런트에서 데이터 받음")
     start_time = time.time()
-    logger.info(user_input)
     
     try:
         input_data = user_input.model_dump()
         logger.info(f"prompt")
         if prompt:
-            input_data['prompt'] = prompt         
+            input_data['prompt'] = prompt   
+            logger.info(f"사용자 입력값 -- {user_input}")      
         try:
-            accommodation_service = AccommodationAgentService()  # 싱글톤 인스턴스 가져오기
+            accommodation_service = AccommodationAgentService() 
             result = await accommodation_service.create_recommendation_accommodation(user_input=input_data)
         except Exception as e:
             logger.error(f"[ERROR] accommodationagentservie create_accommodation_recemmendation() 오류 발생: {e}")

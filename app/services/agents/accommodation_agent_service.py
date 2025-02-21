@@ -1,20 +1,10 @@
 from crewai import Agent, Crew, Process, Task
-from crewai.project import agent, task, CrewBase, crew
-from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 from langchain_openai import ChatOpenAI
-from crewai.tools import BaseTool
-from urllib.parse import quote
-from serpapi import GoogleSearch
-from geopy.geocoders import Nominatim
-from typing import List, Optional
-import json
-import http.client
 from app.services.agents.tools.accommodation_tool import GeoCoordinateTool, GoogleReviewTool, GoogleHotelSearchTool,GooglePlaceTool,GoogleImageUrlTool
 from app.dtos.spot_models import spots_pydantic
 import logging
-from datetime import datetime
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -25,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 class AccommodationAgentService:
     _instance = None
-    
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(AccommodationAgentService, cls).__new__(cls)
@@ -62,7 +51,6 @@ class AccommodationAgentService:
             "반려견": 0,
         }
 
-        # companion_group 리스트를 순회하며 각 label에 해당하는 count 값을 합산
         for companion in companion_group:
             label = companion.get("label")
             count = companion.get("count", 0)
@@ -86,7 +74,7 @@ class AccommodationAgentService:
         else:
             keywords = []
 
-        keywords = list(filter(None, keywords)) # Ensure keywords is a list
+        keywords = list(filter(None, keywords))
         
         # age 추출 및 키워드에 추가
         age = user_input.get('ages')
@@ -97,8 +85,6 @@ class AccommodationAgentService:
         if pets > 0:
             keywords.append("반려견 동반")
             
-        start_date = user_input.get('start_date')
-        end_date = user_input.get('end_date')
                      
         prepared_user_data = {
             'main_location' : user_input.get('main_location'),
@@ -195,7 +181,7 @@ class AccommodationAgentService:
                 expected_output="""
                 title, address, latitude, longtitude, thumbnail, description를 포함한 숙소 리스트. 반드시 검색 결과에서 데이터를 가져온다.""",
             ),
-            Task(  #place 검색 task
+            Task(  #cid 검색 task
                 description=f"""
                 -{input_data['main_location']}, 숙소 title 사용하여 각 숙소의 cid 를 추출한다.
                 -결과는 반드시 7개의 각 숙소에 대한 cid을 포함해야한다.
@@ -266,15 +252,13 @@ class AccommodationAgentService:
                 link :  https://www.google.com/travel/search?q=title title은 각 숙소의 이름이다. 절대 'https://www.example.com/title' 사용금지 .
                 spot_category: 0 으로 항상 고정
                 spot_time : 22:00:00 으로 항상 고정 
-                phone_number: phonenumber from attributes
                 """,
                 agent=self.agents["accommodation_list_expert"],
                 expected_output="""
                 - title, address, latitude, longtitude, cid, thunbnail, 키워드, description, link,spot_category,spot_time, phone_number를 포함한 숙소 리스트
                 """,
                 output_json=spots_pydantic,
-            ),  
-                                              
+            ),                                               
         ]
 
     async def create_recommendation_accommodation(self, user_input: dict):
