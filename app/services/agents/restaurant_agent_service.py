@@ -29,7 +29,7 @@ import logging
 logger = logging.getLogger("restaurant_agent_service")
 logger.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('logs/restaurant_agent.log')
+file_handler = logging.FileHandler('logs/restaurant_agent_service.log')
 file_handler.setLevel(logging.INFO)
 
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
