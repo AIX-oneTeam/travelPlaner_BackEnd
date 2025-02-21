@@ -2,7 +2,7 @@ from crewai import Agent, Crew, Process, Task
 from dotenv import load_dotenv
 import os
 from langchain_openai import ChatOpenAI
-from app.services.agents.tools.accommodation_tool import GeoCoordinateTool, GoogleReviewTool, GoogleHotelSearchTool,GooglePlaceTool,GoogleImageUrlTool
+from app.services.agents.tools.accommodation_tool import GeoCoordinateTool, GoogleReviewTool, GoogleHotelSearchTool,GooglePlaceTool
 from app.dtos.spot_models import spots_pydantic
 import logging
 
