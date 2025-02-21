@@ -29,10 +29,10 @@ import logging
 logger = logging.getLogger("restaurant_agent_service")
 logger.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('logs/restaurant_agent_service.log')
+file_handler = logging.FileHandler("logs/restaurant_agent_service.log")
 file_handler.setLevel(logging.INFO)
 
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)
 
 logger.addHandler(file_handler)
@@ -183,7 +183,7 @@ class RestaurantAgentService:
                 expected_output="위치 좌표",
             ),
             "keyword_task": Task(
-                description="""이전 Task에서 얻은 좌표와 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
+                description="""좌표와 여행 정보를 바탕으로 맛집 검색에 사용할 가장 효과적인 검색 키워드 3개를 생성해주세요:
                 # 입력 정보
                 지역: {main_location}
                 좌표: 이전 태스크에서 생성된 좌표 결과
@@ -196,12 +196,7 @@ class RestaurantAgentService:
                 1. 정확히 3개의 검색 키워드를 생성할 것
                 2. 각 키워드는 "{main_location} + 목적" 형식으로 구성할 것
                 3. 실제 검색에 효과적인 구체적인 키워드로 구성할 것
-                4. 반드시 음식점(식당)과 관련된 키워드만 생성할 것. 카페, 숙소 등 음식점과 직접 연관되지 않은 업종의 키워드는 포함되지 않는 것
-                5. 반환 형식은 다음과 같이 할 것:
-                {{
-                    "coordinates": "이전 Task의 coordinates 값을 그대로 전달",
-                    "keywords": ["키워드1", "키워드2", "키워드3"]
-                }}
+                4. 반드시 음식점(식당)과 관련된 키워드만 생성할 것. 카페, 숙소 등 음식점과 직접 연관되지 않은 업종의 키워드는 포함하지 않을 것
                 """,
                 agent=self.agents["keyword_extraction"],
                 expected_output="좌표와 3개의 맛집 검색 키워드",
@@ -219,112 +214,96 @@ class RestaurantAgentService:
                 동반자({companion_count})를 위한
                 {prompt_text}
 
-                여행 일정에 따라, 검색된 맛집 수에서 2개를 제외한 수만큼 식당을 추천해야 합니다. 
-                여행 일수는 ({end_date} - {start_date}) + 1로 계산되며, 1일 여행이면 7개 식당이 검색되고, 이후 매일 3개씩 증가합니다. 
-                예를 들어, 1일 여행: 7개 검색 → 5개 추천, 2일 여행: 10개 검색 → 8개 추천, 3일 여행: 13개 검색 → 11개 추천, 4일 여행: 16개 검색 → 14개 추천입니다.
+                반드시 정확하고 누락 없이 정보를 반환할 것.
 
-                2. **선별 기준**  
-                - 동반자의 연령대 및 특성을 고려한 적합성 평가    
-                - 동일 식당 또는 동일 프랜차이즈 지점은 중복해서 추천하지 말 것  
+                ### **추천 식당 수량**  
+                - 여행 일수 = ({end_date} - {start_date}) + 1  
+                - 1일차: 7개 검색 → 5개 추천  
+                - 이후 매일: +3개 검색, (검색된 수 - 2)개 추천  
 
-                3. **필수 검토사항**  
-                - 영업 상태가 확인된 식당을 우선 추천할 것  
-                - 접근성과 예상 대기시간을 고려할 것  
-                - 동반자 구성에 따른 메뉴의 다양성을 확인할 것  
+                ### **핵심 고려사항**  
+                #### **1. 선별 기준**  
+                - 동반자 연령대 및 특성에 맞는 적절한 식당 선택  
+                - 동일 매장 및 동일 프랜차이즈 중복 추천 금지  
 
-                4. **출력 형식**  
-                반드시 아래 JSON 스키마에 맞춰, 누락 없이 정확하게 정보를 작성할 것:
+                #### **2. 필수 확인사항**  
+                - 영업 상태 확인 (영업 중인 식당 우선)  
+                - 접근성 및 예상 대기시간 고려  
+                - 동반자 구성에 따른 메뉴 다양성 확인  
 
-                {{
+                ### **상세 작성 지침**  
+                - **eng_name**: kor_name을 의미를 살려 영문으로 변환 (예: 미포집 → Mipojip)  
+                - **description**: 150~180자로 한글로 작성 (메뉴, 맛, 분위기, 위치 포함, 식당명 언급 금지)  
+                - **url**: 공식 사이트 > 지도(네이버/카카오) > 공식 SNS > 리뷰 사이트 순서로 제공  
+                - **business_hours**: 'HH:MM - HH:MM' 형식으로 작성  
+                - **business_status**: 공식 정보 기준 (true/false)
+                """,
+                agent=self.agents["final_recommendation"],
+                expected_output="""
+                {
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
                     "description": "string (가게 설명, 최소 150자 이상 180자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
                     "business_hours": "string 또는 null (영업 시간 정보)",
                     "url": "string 또는 null (가게 URL, 공식 정보 우선)"
-                }}
-
-                ### 상세 정보 수집 지시사항:
-                - **eng_name**: kor_name을 영어로 번역하여 입력할 것.
-                    - 예시: "미포집" → "Mipojip"
-                    - 식당 이름의 의미를 살려서 적절하게 번역할 것.
-                - **description**: 수집한 데이터를 바탕으로 가게의 주요 메뉴, 분위기, 위치적 특징을 포함하여 **최소 150자 이상 180자 이하**로 작성할 것.
-                    - **절대 식당 이름을 문장 앞에 사용하지 말 것.**
-                    - 식당 이름이 포함된 문장이 생성되었을 경우, 반드시 제거하고 자연스럽게 다시 작성할 것.
-                    - 대표 메뉴, 맛의 특징, 분위기 등을 반영할 것.
-                - **url**: 가게의 공식 웹사이트 또는 신뢰할 수 있는 URL을 우선 포함할 것.
-                    - 공식 웹사이트가 없으면 null을 입력할 것.
-                    - 우선순위: 공식 웹사이트 > 네이버/카카오 지도 링크 > 공식 SNS 페이지 > 맛집 리뷰 사이트 URL.
-                - **business_status**: 공식 정보(웹사이트 등)를 기준으로, 영업 중이면 true, 아니면 false로 입력할 것.
-                - **business_hours**: 공식 정보(웹사이트 등)를 기준으로 '09:00 - 22:00' 형식으로 작성하고, 공식 정보가 없으면 수집된 데이터를 바탕으로 추정하여 입력할 것.
-                """,
-                agent=self.agents["final_recommendation"],
-                expected_output="최종 추천 맛집 리스트",
+                }""",
             ),
             "image_task": Task(
                 description="""최종 추천된 맛집 리스트에 포함된 식당들의 이미지를 검색하고,  
                 기존 JSON 형식을 유지하면서 **image_url 필드만 업데이트**하라.  
-                반드시 아래 JSON 스키마를 따르며, 정확하고 누락 없이 정보를 반환할 것.  
+                반드시 정확하고 누락 없이 정보를 반환할 것.  
 
-                ### JSON 스키마:
-                {{
+                **이미지 선택 우선순위:**  
+                1. 대표 메뉴 및 실제 음식 사진 (최우선)  
+                2. 매장 내부 사진  
+                3. 매장 외관 사진  
+
+                **필수 이미지 조건:**  
+                - **HTTPS URL만 허용**  
+                - **최신 1년 이내 고화질 이미지 사용**  
+                - **로고, 지도, 메뉴판 이미지는 제외**  
+                - **신뢰할 수 있는 출처만 사용**  
+
+                **반환 형식:**  
+                - 기존 JSON 구조를 그대로 유지하며, **`image_url` 필드를 추가**  
+                - 이미지가 없을 경우 `"image_url": null` 로 설정  
+                """,
+                agent=self.agents["image_search"],
+                expected_output="""
+                {
                     "kor_name": "string (가게 한글이름, 최대 255자)",
                     "eng_name": "string 또는 null (가게 영어이름, 최대 255자)",
                     "description": "string (가게 설명, 최소 150자 이상 180자 이하)",
                     "business_status": "boolean (영업 상태, true: 영업 중, false: 영업 종료)",
-                    "business_hours": "string 또는 null (영업 시간 정보)"
-                    "url": "string 또는 null (가게 URL, 공식 정보 우선)",
+                    "business_hours": "string 또는 null (영업 시간 정보)",
+                    "url": "string 또는 null (가게 URL, 공식 정보 우선)"
                     "image_url": "string 또는 null (가게 이미지 URL)"
-                }}
-
-                ### 이미지 검색 및 선택 기준:
-                1. **최우선 조건**: 가게의 대표 메뉴나 실제 음식 사진을 우선적으로 선택할 것.
-                    - 해당 식당에서 제공하는 대표적인 음식 이미지가 최우선.
-                    - 가능한 경우 고화질의 실제 음식 사진을 반환할 것.
-
-                2. **음식 사진이 없을 경우 대체 기준**:
-                    - 식당 내부 사진 (실제 매장 분위기를 확인할 수 있는 이미지)
-                    - 식당 외관 사진 (가게의 위치와 특성을 나타내는 이미지)
-
-                3. **반드시 지켜야 할 공통 조건**:
-                    - HTTPS 프로토콜을 사용하는 이미지 URL만 허용 (http:// URL은 제외)
-                    - 최신 1년 이내의 고화질 이미지를 우선 선택할 것.
-                    - 로고, 지도 캡처, 텍스트가 포함된 이미지, 메뉴판 등의 이미지는 제외할 것.
-                    - 노출도가 낮거나 신뢰할 수 없는 출처의 이미지는 사용하지 말 것.
-
-                ### 반환 방식:
-                - 기존 JSON 데이터를 유지하면서, `image_url` 필드만 추가 또는 업데이트할 것.
-                - 검색된 이미지가 없을 경우 `image_url`은 `null`로 설정할 것.
-
-                위의 기준을 적용하여 **각 식당에 대한 최적의 이미지 URL을 반환**하라.
-                """,
-                agent=self.agents["image_search"],
-                expected_output="네이버 이미지 검색 API 또는 기타 신뢰할 수 있는 출처를 활용하여 업데이트된 맛집 리스트",
+                }""",
             ),
             "detail_task": Task(
                 description="""최종 추천된 맛집 리스트에 포함된 식당들에 대해 {main_location} 지역을 포함하여 **카카오 로컬 API**를 사용하여 상세 정보를 수집하라.  
                 기존 데이터를 유지하면서 다음 필드들을 업데이트해야 한다.  
 
-                ### **필수 수집 정보**:
-                - **address**: 식당의 도로명 주소를 수집하며, 도로명 주소가 없는 경우 지번 주소를 반환할 것.  
-                - **latitude, longitude**: 검색된 식당의 정확한 위도 및 경도 좌표를 반환할 것.  
-                - **map_url**: 해당 식당의 카카오맵 URL을 제공할 것.  
-                - **phone_number**: 식당의 전화번호를 수집할 것.
+                **수집할 정보:**  
+                - **address**: 도로명 주소 (없을 경우 지번 주소)  
+                - **latitude, longitude**: 위도 및 경도 좌표  
+                - **map_url**: 카카오맵 URL  
+                - **phone_number**: 전화번호  
 
-                ## 여행 일정 기반 필수 규칙
-                - `spot_category`는 항상 `2`로 설정해야 한다.
-                - `day_x`, `order`는 0으로 항상  `0`로 설정해야 한다.
+                **고정 설정값:**  
+                - **spot_category**: 2  
+                - **day_x**: 0  
+                - **order**: 0  
 
-                ## 반환 데이터 형식 및 예외 처리
-                - 기존 JSON 형식을 유지하면서, 위에서 지정한 필드를 업데이트해야 한다.  
-                - `business_status`는 반드시 `true`, `false` 값으로 반환할 것.  
-                - 정보가 없는 경우 해당 필드는 `null`로 설정할 것.
+                **검색 규칙:**  
+                - 모든 검색어 앞에 **"{main_location}"** 포함  
+                - 예시: **"{main_location} 식당이름"**  
 
-                ### **검색 주의사항**:
-                - 모든 식당 검색 시 "{main_location}"을 포함하여 검색할 것.  
-                - 정확한 검색을 위해 지역명을 검색어 앞에 추가할 것 (예: "{main_location} 식당이름").
-
-                위 기준을 적용하여 **카카오 로컬 API를 활용한 상세 정보를 반환**하라.
+                **반환 형식:**  
+                - 기존 JSON 구조를 유지하며, 위 **신규 필드를 추가**  
+                - **business_status**는 `true/false` 값만 가능  
+                - 해당 정보가 없을 경우 해당 필드는 **null** 값으로 설정
                 """,
                 agent=self.agents["kakao_local_search"],
                 expected_output="카카오 로컬 API로 업데이트된 맛집 리스트",
