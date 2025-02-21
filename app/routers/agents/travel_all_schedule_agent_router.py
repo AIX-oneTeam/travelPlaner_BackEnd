@@ -92,6 +92,7 @@ async def generate_plan(
             tasks["cafe"] = cafe_agent_service.create_recommendation_cafe(input_data=input_dict, session=session, redis_client=redis_client)
             logger.info(f"cafe Agent 결과: {tasks['cafe']}")
             
+
         if "accommodation" in agent_type:
             accommodation_agent_service = AccommodationAgentService()
             tasks["accommodation"] = accommodation_agent_service.create_recommendation_accommodation(input_dict)
