@@ -1,6 +1,6 @@
 import logging
 import os
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import asyncio
@@ -11,9 +11,7 @@ from redis import Redis
 from app.repository.db import get_async_session
 from app.repository.fcmToken.fcm_token_respository import get_fcm_token
 from app.repository.redis_client import get_redis
-from app.services.agents.travel_all_schedule_agent_service import (
-    TravelScheduleAgentService,
-)
+from app.services.agents.travel_all_schedule_agent_service import TravelScheduleAgentService
 from app.services.agents.site_agent_service import TouristAgentService
 from app.services.agents.cafe_agent_service import CafeAgentService
 from app.services.agents.restaurant_agent_service import RestaurantAgentService
@@ -24,14 +22,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
-
 from app.utils.time_check import time_check
 
 load_dotenv()
 
 router = APIRouter()
 travel_schedule_agent_service = TravelScheduleAgentService()
-
 logger = logging.getLogger("app.utils.time_check")
 
 
@@ -56,31 +52,39 @@ class TravelPlanRequest(BaseModel):
 async def generate_plan(
     request: Request,
     user_input: TravelPlanRequest,
+<<<<<<< HEAD
     agent_type: List[str] = Query(default=[], alias="agent_type[]"),
+=======
+>>>>>>> dev
     session: AsyncSession = Depends(get_async_session),
     redis_client: Redis = Depends(get_redis),
 ):
     try:
         print("프론트에서 받은 데이터:", user_input)
-
-        # Pydantic 모델을 Python dict로 변환 후, 에이전트 타입 추가
+        # Pydantic 모델을 Python dict로 변환
         input_dict = user_input.model_dump()
+<<<<<<< HEAD
         logger.info(
             f"{input_dict['main_location']}, {input_dict['start_date']}, {input_dict['end_date']}, {input_dict['concepts']} 에 대한 여행 일정 생성 시작"
         )
+=======
+
+        # 기본으로 실행할 에이전트 리스트 설정
+        agent_type = ["restaurant", "site", "cafe", "accommodation"]
+>>>>>>> dev
         input_dict["agent_type"] = agent_type
 
         # 비동기 작업 딕셔너리 생성
         tasks = {}
 
-        # 각 외부 에이전트 호출 및 결과 집계
         if "restaurant" in agent_type:
             restaurant_service = RestaurantAgentService()
-            tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(
-                input_dict, session, redis_client=redis_client
-            )
+            tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(input_dict)
+
+            
         if "site" in agent_type:
             site_agent_service = TouristAgentService()
+<<<<<<< HEAD
             tasks["site"] = site_agent_service.create_tourist_plan(
                 input_dict, redis_client=redis_client, session=session
             )
@@ -96,16 +100,29 @@ async def generate_plan(
                     input_dict
                 )
             )
+=======
+            tasks["site"] = site_agent_service.create_tourist_plan(input_dict)
+            logging.info(f"Site Agent 결과: {tasks['site']}")
+        if "cafe" in agent_type:
+            cafe_agent_service = CafeAgentService()
+            tasks["cafe"] = cafe_agent_service.create_cafe_recommendation(input_dict, redis_client=redis_client)
+
+        if "accommodation" in agent_type:
+            accommodation_agent_service = AccommodationAgentService()
+            tasks["accommodation"] = accommodation_agent_service.create_recommendation_accommodation(input_dict)
+>>>>>>> dev
 
         # 비동기 작업 병렬 실행 및 결과 매핑
         results = await asyncio.gather(*tasks.values())
         external_data = dict(zip(tasks.keys(), results))
 
-        # 집계한 external_data를 입력 데이터에 추가합니다.
+        # 집계한 external_data를 입력 데이터에 추가
         input_dict["external_data"] = external_data
         logging.info(f"라우터받은 데이터----------------: {input_dict}")
-        # 최종 여행 일정 생성 함수 호출 (외부 데이터가 포함된 상태)
-        result = await travel_schedule_agent_service.create_plan(input_dict)
+
+
+        # 최종 여행 일정 생성 함수 호출 (외부 데이터 포함)
+        result = await travel_schedule_agent_service.create_plan(input_dict,session=session,redis_client=redis_client)
 
         # 푸시 메시지 전송
         await send_push_message(
