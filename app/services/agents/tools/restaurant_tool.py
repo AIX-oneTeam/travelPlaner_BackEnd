@@ -54,7 +54,7 @@ async def check_url_openable_async(url: str) -> bool:
         return False
 
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=3) as client:
             response = await client.head(url, follow_redirects=True)
             if 200 <= response.status_code < 400:
                 return True
@@ -90,6 +90,7 @@ class GeocodingTool(BaseTool):
 
     def _run(self, location: str) -> Dict:
         return asyncio.run(self._arun(location))
+
 
 # 2. Google Places API를 사용해 맛집 기본 정보를 조회하는 Tool
 class RestaurantBasicSearchTool(BaseTool):
@@ -169,13 +170,19 @@ class RestaurantBasicSearchTool(BaseTool):
                     f"키워드 '{simplified_keyword}' 첫 요청 결과 수: {len(results)} (필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상)"
                 )
 
+                # --- 기존 for 루프 대신 asyncio.gather로 병렬 처리 (수정한 부분) ---
+                tasks = []
                 for place in results:
-                    if len(collected) >= remaining_count:
-                        break
-
                     place_id = place.get("place_id")
                     if place_id:
-                        details = await self.get_place_details(session, place_id)
+                        tasks.append(self.get_place_details(session, place_id))
+                if tasks:
+                    details_list = await asyncio.gather(*tasks, return_exceptions=True)
+                    for details in details_list:
+                        if len(collected) >= remaining_count:
+                            break
+                        if isinstance(details, Exception):
+                            continue
                         if (
                             details
                             and details["rating"] >= filter_rating
@@ -184,6 +191,7 @@ class RestaurantBasicSearchTool(BaseTool):
                         ):
                             collected.append(details)
                             collected_names.add(details["title"])
+                # ---------------------------------------------------------------------
 
                 next_page_token = data.get("next_page_token")
 
@@ -199,15 +207,23 @@ class RestaurantBasicSearchTool(BaseTool):
                                 f"키워드 '{simplified_keyword}' 추가 요청 결과 수: {len(new_results)}"
                             )
 
+                            # --- 여기서도 asyncio.gather로 병렬 처리 (수정한 부분) ---
+                            tasks = []
                             for place in new_results:
-                                if len(collected) >= remaining_count:
-                                    break
-
                                 place_id = place.get("place_id")
                                 if place_id:
-                                    details = await self.get_place_details(
-                                        session, place_id
+                                    tasks.append(
+                                        self.get_place_details(session, place_id)
                                     )
+                            if tasks:
+                                details_list = await asyncio.gather(
+                                    *tasks, return_exceptions=True
+                                )
+                                for details in details_list:
+                                    if len(collected) >= remaining_count:
+                                        break
+                                    if isinstance(details, Exception):
+                                        continue
                                     if (
                                         details
                                         and details["rating"] >= filter_rating
@@ -216,6 +232,7 @@ class RestaurantBasicSearchTool(BaseTool):
                                     ):
                                         collected.append(details)
                                         collected_names.add(details["title"])
+                            # -----------------------------------------------------------------
 
                             next_page_token = data.get("next_page_token")
 
@@ -366,8 +383,11 @@ class NaverWebSearchTool(BaseTool):
     async def _arun(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurant_list:
-                results[restaurant] = await self.fetch(session, restaurant)
+            # 기존 for 루프 대신 asyncio.gather를 사용하여 병렬 처리
+            tasks = [self.fetch(session, restaurant) for restaurant in restaurant_list]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            for restaurant, response in zip(restaurant_list, responses):
+                results[restaurant] = response
         return results
 
     def _run(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
@@ -404,7 +424,7 @@ class NaverImageSearchTool(BaseTool):
                 data = await response.json()
                 items = data.get("items", [])
                 if not items:
-                    return "https://via.placeholder.com/300x200?text=No+Image"
+                    return None
 
                 # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
                 for item in items:
@@ -413,10 +433,10 @@ class NaverImageSearchTool(BaseTool):
                         return img_url
 
                 # 만약 모두 접근 불가능하다면, 기본 이미지 URL 반환
-                return "https://via.placeholder.com/300x200?text=No+Image"
+                return None
         except Exception as e:
             logger.error(f"네이버 이미지 검색 오류: {str(e)}")
-            return "https://via.placeholder.com/300x200?text=Error"
+            return None
 
     async def _arun(
         self, restaurant_list: Union[List[str], List[Dict], Dict]
@@ -447,8 +467,11 @@ class NaverImageSearchTool(BaseTool):
 
         results = {}
         async with aiohttp.ClientSession() as session:
-            for restaurant in restaurants:
-                results[restaurant] = await self.fetch(session, restaurant)
+            # 기존 for 루프 대신 asyncio.gather를 사용하여 병렬 처리
+            tasks = [self.fetch(session, restaurant) for restaurant in restaurants]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            for restaurant, response in zip(restaurants, responses):
+                results[restaurant] = response
         return results
 
     def _run(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
@@ -541,8 +564,9 @@ class KakaoLocalSearchTool(BaseTool):
         """모든 식당 정보를 병렬로 처리"""
         results = []
         async with aiohttp.ClientSession() as session:
+            # 기존 for 루프 대신 asyncio.gather를 사용하여 병렬 처리
             tasks = [self.fetch(session, name, location) for name in restaurant_names]
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         return results
 
     def _run(self, restaurant_names: List[str], location: str) -> List[Dict]:

@@ -18,9 +18,9 @@ restaurant_service = RestaurantAgentService()
 @router.post("/restaurant")
 async def get_restaurants(
     user_input: TravelPlanRequest = Body(...),
-    prompt: Optional[str] = Query(None),
     session: AsyncSession = Depends(get_async_session),
     redis_client: Redis = Depends(get_redis),
+    prompt: Optional[str] = Query(None),
 ):
     """
     맛집 추천 엔드포인트
@@ -35,7 +35,10 @@ async def get_restaurants(
 
         try:
             result = await restaurant_service.create_recommendation_restaurant(
-                input_data, prompt, session, redis_client=redis_client
+                input_data=input_data,
+                session=session,
+                redis_client=redis_client,
+                prompt=prompt,
             )
         except Exception as e:
             logger.error(f"[ERROR] create_recommendation() 오류 발생: {e}")
