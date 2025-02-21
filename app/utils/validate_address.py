@@ -36,17 +36,17 @@ def validate_address(location):
     # 하이픈이 없는 경우
     return get_region_variations(location)
 
-# 테스트
-test_cases = [
-    "부산광역시 -  부산광역시",
-    "강원특별자치도 - 강릉시",
-    "서울특별시 - 강남구",
-    "경상남도 - 창원시",
-    "경남"
-]
+# # 테스트
+# test_cases = [
+#     "부산광역시 -  부산광역시",
+#     "강원특별자치도 - 강릉시",
+#     "서울특별시 - 강남구",
+#     "경상남도 - 창원시",
+#     "경남"
+# ]
 
-for case in test_cases:
-    result = validate_address(case)
-    print(f"입력: {case}")
-    print(f"출력: {result}")
-    print()
+# for case in test_cases:
+#     result = validate_address(case)
+#     print(f"입력: {case}")
+#     print(f"출력: {result}")
+#     print()

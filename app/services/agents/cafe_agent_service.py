@@ -76,9 +76,9 @@ class CafeAgentService:
             ),
             "researcher" : Agent(
                 role="카페 상세 정보 수집 및 업종 검증가",
-                goal="카페의 상세 정보를 수집하고 업종에 카페 또는 베이커리가 포함되지 않은 장소는 삭제합니다.",
+                goal="카페의 상세 정보를 수집하고 업종에 카페 또는 베이커리 또는 디저트가 포함되지 않은 장소는 삭제합니다.",
                 backstory="""
-                카페의 상세 정보를 수집하고, 업종에 카페 또는 베이커리가 포함되지 않은 장소는 리스트에서 삭제해주세요. 
+                카페의 상세 정보를 수집하고, 업종에 카페 또는 베이커리 또는 디저트가 포함되지 않은 장소는 리스트에서 삭제해주세요. 
                 """,
                 tools=[self.get_cafe_business_info_tool],
                 allow_delegation=False,
