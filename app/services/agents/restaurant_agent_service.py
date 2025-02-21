@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
 from dotenv import load_dotenv
 import os
+import gc
 from app.repository.agents.restaurant_plan_spots_repository import (
     get_member_plan_spots,
     get_latest_plan,
@@ -59,7 +60,7 @@ class RestaurantAgentService:
         self.kakao_local_search_tool = KakaoLocalSearchTool()
         self.agents = self._create_agents()
         self.tasks = self._create_tasks()
-        
+
         self.tasks["keyword_task"].context = [self.tasks["geocoding_task"]]
         self.tasks["search_task"].context = [self.tasks["keyword_task"]]
         self.tasks["recommendation_task"].context = [self.tasks["search_task"]]
@@ -463,6 +464,9 @@ class RestaurantAgentService:
             result = await crew.kickoff_async(inputs=processed_input)
             processed_result = self._process_result(result, processed_input)
             print(f"⭐️ processed_result: {processed_result}")
+
+            # 모든 작업이 끝난 후 메모리 정리
+            gc.collect()
 
             # 5. plan_id가 없는 경우, 결과를 Redis에 저장
             if not input_data.get("plan_id") and redis_client:
