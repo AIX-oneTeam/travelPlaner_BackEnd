@@ -34,13 +34,18 @@ travel_schedule_agent_service = TravelScheduleAgentService()
 logger = logging.getLogger("all_agent_router")
 logger.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('logs/all_agent.log')
+file_handler = logging.FileHandler('logs/all_agent.log', encoding="utf-8")
 file_handler.setLevel(logging.INFO)
-
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
-
 logger.addHandler(file_handler)
+
+# 에러 전용 로그 파일 생성
+file_handler_error = logging.FileHandler('logs/all_agent_error.log', encoding="utf-8")
+file_handler_error.setLevel(logging.ERROR)
+formatter_error = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler_error.setFormatter(formatter_error)
+logger.addHandler(file_handler_error)
 
 
 class Companion(BaseModel):
@@ -73,6 +78,8 @@ async def generate_plan(
         # 기본으로 실행할 에이전트 리스트 설정
         agent_type = ["accommodation", "cafe", "restaurant", "site"]
         input_dict["agent_type"] = agent_type
+        input_dict["email"] = get_member_id_by_request(request, session)
+
 
         # 비동기 작업 딕셔너리 생성
         tasks = {}
