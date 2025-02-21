@@ -118,14 +118,13 @@ class CafeAgentService:
         return {
             "collector_task" : Task(
                 description="""
-                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영해 키워드 리스트({keywords})에 키워드를 추가하세요.
-                - 수정된 keywords 리스트의 길이(len(keywords))는 최대 3 입니다.
+                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영해 keywords라는 이름의 리스트를 생성하고 키워드를 추가하세요.
+                - 키워드 리스트의 길이는 최소 1개에서 최대 3개입니다.
                 - "해산물"처럼 카페와 상관 없는 키워드는 생성하지 마세요.
                 - 각 키워드는 형용사 또는 명사인 하나의 단어여야 하고, 비슷한 의미를 가진 단어는 1개만 사용하세요.
                 - 1개로 충분하다면 불필요하게 3개 까지 생성하지 마세요.
                 - 키워드로 "카페" 또는 "지역명" 또는 "추천"은 사용하지 마세요.
-                2. tool 사용시 "{main_location}"과 "수정한 키워드 리스트"를 순서대로 입력하세요.
-                - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트, 갯수는 prompt와 concepts의 수 미만  
+                2. tool 사용시 "{main_location}"과 리스트 타입의 "keywords"를 순서대로 input값으로 사용하세요.
                 3. 지역이 {main_location}에 위치하지 않는 곳은 삭제해주세요.
                 """,
                 expected_output="""
@@ -244,7 +243,6 @@ class CafeAgentService:
             input_data["n"] = 5 if input_data.get("prompt") else days * 2
             input_data["existing_spot_names"] = []
             input_data["member_id"] = member_id
-            input_data["keywords"] = ["느좋"]
             
             # 6. 캐싱된 카페 수가 충분하면 draft 에이전트를 사용
             if (not input_data.get("prompt")) and len(cached_cafe_lists) >= days * 2:

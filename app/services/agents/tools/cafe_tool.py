@@ -88,12 +88,13 @@ class NaverBlogSearchTool(BaseTool):
         except Exception as e:
             return f"[cafe_tool:NaverBlogCralwer] 에러: {str(e)}"
 
-    async def _arun(self, main_location: str, keywords: list) -> str:
+    async def _arun(self, main_location: str, keywords: Optional[list]=["느좋"]) -> str:
         
         simplified_location = simplify_address(main_location)
+        
         # keywords가 비어있으면 기본 검색어를 사용
         if keywords:
-            keywords_query = f"{simplified_location} 카페 +{' '.join(keywords)}"
+            keywords_query = f"{simplified_location} 카페 {' '.join(keywords)}"
         else:
             keywords_query = f"{simplified_location} 카페"
         
