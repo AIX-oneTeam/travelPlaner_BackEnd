@@ -1,26 +1,26 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List
 
-class CafeData(BaseModel):
-    main_location: str
-    keywords: List[str]
-    n_posting: int
+# 체크리스트 항목 단일 모델
+class Cafe(BaseModel):
     placeId: str
     kor_name: str
     address: str
-    atmosphere: str 
-    signature_menu: str
-    main_features: str
-    positive_reviews: str 
-    negative_reviews: str
-    url: str
-    image_url: str
-    map_url: str
-    latitude: float
+    latitude:float
     longitude: float
-    phone_number: str
+    phone_number: str         
+    n_posting: int
+    url: str 
     business_status: bool
-    business_hours: str
-    
+    business_hour: str
+    category: str
+    description : str
+    preference : str
+    image_url: str
+    map_url : str
+
+# 여러 체크리스트 항목을 받을 때 사용
 class CafeList(BaseModel):
-    spots: list[CafeData]    
+    spots: List[Cafe]
+
+
