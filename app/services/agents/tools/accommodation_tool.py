@@ -37,7 +37,7 @@ async def check_url_openable_async(url: str) -> bool:
         return False
 
 
-# 1. # 위도,경도 계산 툴
+# 1. 위도,경도 계산 툴
 class GeoCoordinateTool(BaseTool):
     name: str = "GeoCoordinate Tool"
     description: str = "지역의 위도 경도를 계산"
@@ -52,72 +52,17 @@ class GeoCoordinateTool(BaseTool):
         except Exception as e:
             return f"[GeoCoordinateTool] 에러: {str(e)}"      
 
-# 구글 맵 툴 
-class GoogleMapTool(BaseTool):
-    name: str = "GoogleMapTool"
-    description: str = "구글 맵 api를 사용하여 숙소 리스트 검색 툴"
-    
-    def _run(self, main_location: str, title:str,  location_coordinates:str) -> str:
-        try:
-            conn = http.client.HTTPSConnection("google.serper.dev")
-
-            payload = json.dumps({
-            "q": f"{title} {main_location}",
-            'll': f"@{location_coordinates},15.1z", 
-            "gl": "kr",
-            "hl": "ko"
-            })
-            headers = {
-            'X-API-KEY': SERP_API_KEY,
-            'Content-Type': 'application/json'
-            }
-            conn.request("POST", "/maps", payload, headers)
-            res = conn.getresponse()
-            data = res.read()
-            print(data.decode("utf-8"))
-            return json.loads(data.decode("utf-8"))
-        except Exception as e:
-            return f"[GoogleMapTool] 에러: {str(e)}"
-
-# 구글 리뷰 툴 
-class GoogleReviewTool(BaseTool):
-    name: str = "GoogleReviewTool"
-    description: str = "구글 리뷰 API를 이용, 리뷰 검색 툴 "
-    
-    def _run(self, cid: str, fid: str) -> str:
-        try:            
-            conn = http.client.HTTPSConnection("google.serper.dev")
-
-            payload = json.dumps({
-            "cid": cid,
-            "fid": fid,
-            "gl": "kr",
-            "hl": "ko"
-            })
-            headers = {
-            'X-API-KEY': SERP_API_KEY,
-            'Content-Type': 'application/json'
-            }
-            conn.request("POST", "/reviews", payload, headers)
-            res = conn.getresponse()
-            data = res.read()
-            print(data.decode("utf-8"))
-            return json.loads(data.decode("utf-8"))
-            
-        except Exception as e:
-            return f"[GoogleReviewTool] 에러: {str(e)}"
-        
-# 구글 호텔 툴
+# 2. 서퍼 호텔 툴
 class GoogleHotelSearchTool(BaseTool):
     name: str = "Google Hotel Search"
     description: str = "구글 호텔 검색 API를 사용하여 텍스트 정보를 검색"
     
-    def _run(self, main_location: str, start_date: str, end_date: str, adults: int, children: int) -> str:
-        try:            
-            
+    def _run(self, main_location: str, start_date: str, end_date: str, adults: int, children: int,keyword_list: str ) -> str:
+        try:
+            search_query = f"{main_location} 숙소 {keyword_list}".strip()            
             params = {
                 "engine": "google_hotels",
-                'q': f"{main_location} 숙소", 
+                'q': search_query, 
                 "check_in_date": start_date,
                 "check_out_date": end_date,
                 "adults": adults,
@@ -136,29 +81,60 @@ class GoogleHotelSearchTool(BaseTool):
         except Exception as e:
             return f"[GoogleHotelSearchTool] 에러: {str(e)}" 
                
-# 구글 이미지, url 검색 툴
-class GoogleIamgeSearchTool(BaseTool):
-    name: str = "Google image Search"
-    description: str = "구글 검색 API를 통해 숙소의 image, URL을 검색"
+# 2. 구글 플레이스 툴 
+class GooglePlaceTool(BaseTool):
+    name: str = "GooglePlaceTool"
+    description: str = "구글 플레이스 api를 사용하여 각 숙소에 대한 cid 검색 툴"
     
-    def _run(self, main_location: str, title: str) -> str:
-        try:            
+    def _run(self, main_location: str, title: str ) -> str:
+        try:
+            search_q =  f"{main_location} {title}".strip()
+             
             conn = http.client.HTTPSConnection("google.serper.dev")
-
+            
             payload = json.dumps({
-            "q": f"{title}{main_location}",
-            "location": "South Korea",
+            "q": search_q,
             "gl": "kr",
             "hl": "ko"
             })
             headers = {
-            'X-API-KEY': 'a8c775ccdc443e339ea7092b92af166a6163fa1f',
+            'X-API-KEY': SERP_API_KEY,
             'Content-Type': 'application/json'
             }
-            conn.request("POST", "/images", payload, headers)
+            conn.request("POST", "/places", payload, headers)
             res = conn.getresponse()
             data = res.read()
             print(data.decode("utf-8"))
+            return json.loads(data.decode("utf-8"))
+        except Exception as e:
+            return f"[GooglePlaceTool] 에러: {str(e)}"
+
+# 4. 구글 리뷰 툴 
+class GoogleReviewTool(BaseTool):
+    name: str = "GoogleReviewTool"
+    description: str = "구글 리뷰 API를 이용, 리뷰 검색 툴 "
+    
+    def _run(self, cid: str) -> str:
+        try:            
+            conn = http.client.HTTPSConnection("google.serper.dev")
+
+            payload = json.dumps({
+            "cid": cid,
+            "gl": "kr",
+            "hl": "ko"
+            })
+            headers = {
+            'X-API-KEY': SERP_API_KEY,
+            'Content-Type': 'application/json'
+            }
+            conn.request("POST", "/reviews", payload, headers)
+            res = conn.getresponse()
+            data = res.read()
+            print(data.decode("utf-8"))
+            return json.loads(data.decode("utf-8"))
             
         except Exception as e:
-            return f"[GoogleUrlSearchTool] 에러: {str(e)}"
+            return f"[GoogleReviewTool] 에러: {str(e)}"
+        
+        
+
