@@ -225,20 +225,22 @@ class CafeAgentService:
             logger.info(f"----------------------------------------------------")
 
             # 프롬프팅을 위한 input 데이터 추가
-            input_data["cached_cafe_lists"] = cached_cafe_lists
             input_data["concepts"] = ', '.join(input_data.get('concepts',[]))
             days = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
             input_data["days"] = days
             input_data["n"] = 5 if input_data["prompt"] else days*2
             
+            # 초안 에이전트 실행시, 카페 갯수가 충분하면 캐싱한 정보 내에서 추천
             if (not input_data["prompt"]) and len(cached_cafe_lists) >= days*2:
-                logger.info(f"저장된 카페 수가 충분해 redis 내에서 추천합니다")
-                logger.info(f"----------------------------------------------------")
                 try:
-                    result = await self.draft_crew.kickoff_async(inputs=input_data)
-                    spots = result.pydantic.model_dump()
+                    logger.info(f"저장된 카페 수가 충분해 redis 내에서 추천합니다")
+                    logger.info(f"----------------------------------------------------")
+                    input_data["cached_cafe_lists"] = cached_cafe_lists
+                                        
+                    draft_result = await self.draft_crew.kickoff_async(inputs=input_data)
+                    spots_dict = draft_result.pydantic.model_dump()
                     cafes_to_save = [
-                        spot["kor_name"] for spot in spots.get("spots", [])
+                        spot["kor_name"] for spot in spots_dict.get("spots", [])
                     ]
                     logger.info(f"🟢 spots to save: {cafes_to_save}")
 
@@ -252,11 +254,12 @@ class CafeAgentService:
                 except Exception as e:
                     logger.error(f"Redis 저장 중 오류 발생: {e}")
                     traceback.print_exc()
+
+            # 캐싱된 정보 수가 부족할때,
+            input_data["cached_cafe_lists"]=""
                             
             existing_spot_names = []
             member_id = None
-    
-            input_data["cached_cafe_lists"]=""
             # member_id 조회 Redis/DB 로직 실행(중복확인)
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session)
