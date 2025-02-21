@@ -25,6 +25,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
+from app.routers.agents.create_dummy_data import create_dummy_data
 
 load_dotenv()
 
@@ -36,7 +37,6 @@ logger = logging.getLogger("app.utils.time_check")
 class Companion(BaseModel):
     label: str
     count: int
-
 
 class TravelPlanRequest(BaseModel):
     ages: str
@@ -56,12 +56,33 @@ async def generate_plan(
     user_input: TravelPlanRequest,
     session: AsyncSession = Depends(get_async_session),
     redis_client: Redis = Depends(get_redis),
+    debug: bool = True
 ):
     try:
         print("프론트에서 받은 데이터:", user_input)
         # Pydantic 모델을 Python dict로 변환
         input_dict = user_input.model_dump()
 
+        if debug:
+            # 집계한 external_data를 입력 데이터에 추가
+            input_dict["external_data"] = create_dummy_data()
+            logging.info(f"라우터받은 데이터----------------: {input_dict}")
+
+            # 최종 여행 일정 생성 함수 호출 (외부 데이터 포함)
+            result = await travel_schedule_agent_service.create_plan(
+                input_dict, session=session, redis_client=redis_client
+            )
+
+            # 푸시 메시지 전송
+            await send_push_message(
+                request, session, "EasyTravel 알림", "에이전트가 일을 마쳤습니다."
+            )
+            return {
+                "status": "success",
+                "message": "일정과 장소 리스트가 생성되었습니다.",
+                "data": result
+            }
+        
         # 기본으로 실행할 에이전트 리스트 설정
         agent_type = ["restaurant", "site", "cafe", "accommodation"]
         input_dict["agent_type"] = agent_type
