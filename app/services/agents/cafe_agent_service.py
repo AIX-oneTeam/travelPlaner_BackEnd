@@ -118,12 +118,13 @@ class CafeAgentService:
         return {
             "collector_task" : Task(
                 description="""
-                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트를 생성하세요.
-                - 단, "해산물"처럼 카페와 상관 없는 키워드는 생성하지 마세요.
+                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영해 키워드 리스트({keywords})에 키워드를 추가하세요.
+                - 수정된 keywords 리스트의 길이(len(keywords))는 최대 3 입니다.
+                - "해산물"처럼 카페와 상관 없는 키워드는 생성하지 마세요.
                 - 각 키워드는 형용사 또는 명사인 하나의 단어여야 하고, 비슷한 의미를 가진 단어는 1개만 사용하세요.
-                - 키워드는 1개이상 3개 이하로 선택하세요. 1개로 충분하다면 불필요하게 3개 까지 생성하지 마세요.
+                - 1개로 충분하다면 불필요하게 3개 까지 생성하지 마세요.
                 - 키워드로 "카페" 또는 "지역명" 또는 "추천"은 사용하지 마세요.
-                2. tool 사용시 "{main_location}"과 "생성한 키워드 리스트"를 순서대로 입력하세요.
+                2. tool 사용시 "{main_location}"과 "수정한 키워드 리스트"를 순서대로 입력하세요.
                 - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트, 갯수는 prompt와 concepts의 수 미만  
                 3. 지역이 {main_location}에 위치하지 않는 곳은 삭제해주세요.
                 """,
@@ -213,47 +214,49 @@ class CafeAgentService:
         self, input_data: dict, session: AsyncSession = None, redis_client: Redis = None) -> dict:
         """
         사용자 맞춤 카페를 추천하는 에이전트
-        """  
+        """
         try:
-            # member_id 조회
+            # 1. 이메일과 session이 있으면 member_id 조회
+            member_id = ""
             if input_data.get("email") and session:
                 member_id = await get_memberId_by_email(input_data["email"], session) or ""
-                logger.info(f"🔵 member_id 조회됨: {bool(member_id)}")
-                
-            # 데이터 유무 확인
-            logger.info(f"🔵 email 존재: {bool(input_data.get('email'))}")
-            logger.info(f"🔵 session 존재: {bool(session)}")
-            logger.info(f"🔵 redis 존재: {bool(redis_client)}")
-            logger.info(f"🔵 plan_id 없음: {not input_data.get('plan_id')}")
-        
+                logger.info(f"cafe- member_id 조회됨: {bool(member_id)}")
+
+            # 2. 필수 요소 존재 여부 로깅
+            logger.info(f"email 존재: {bool(input_data.get('email'))}")
+            logger.info(f"session 존재: {bool(session)}")
+            logger.info(f"redis 존재: {bool(redis_client)}")
+            logger.info(f"plan_id 없음: {not input_data.get('plan_id')}")
+
+            # 3. 서비스 초기화
             redis_service = SpotRedisService(redis_client)
             caching_service = SpotCachingService(redis_client)
-            
-            cached_cafe_lists = await caching_service.get_spots("cafe", input_data["main_location"]) or []           
-            logger.info(f"찾은 cached_cafe_lists 개수: {len(cached_cafe_lists)}")
-            logger.info(f"----------------------------------------------------")
 
-            # 프롬프팅을 위한 input 데이터 추가
-            input_data["concepts"] = ', '.join(input_data.get('concepts',[]))
-            days = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
+            # 4. Redis 캐싱에서 카페 목록 조회
+            cached_cafe_lists = await caching_service.get_spots(category=SpotCategory.CAFE, main_location=input_data["main_location"]) or []
+            logger.info(f"찾은 cached_cafe_lists 개수: {len(cached_cafe_lists)}")
+            logger.info("----------------------------------------------------")
+
+            # 5. 프롬프트용 입력 데이터 구성
+            input_data["concepts"] = ', '.join(input_data.get('concepts', []))
+            days = calculate_trip_days(input_data.get('start_date', ''), input_data.get('end_date', ''))
             input_data["days"] = days
-            input_data["n"] = 5 if input_data["prompt"] else days*2
+            input_data["n"] = 5 if input_data.get("prompt") else days * 2
             input_data["existing_spot_names"] = []
             input_data["member_id"] = member_id
+            input_data["keywords"] = ["느좋"]
             
-            # 초안 에이전트 실행시, 카페 갯수가 충분하면 캐싱한 정보 내에서 추천
-            if (not input_data["prompt"]) and len(cached_cafe_lists) >= days*2:
+            # 6. 캐싱된 카페 수가 충분하면 draft 에이전트를 사용
+            if (not input_data.get("prompt")) and len(cached_cafe_lists) >= days * 2:
                 try:
-                    logger.info(f"저장된 카페 수가 충분해 redis 내에서 추천합니다")
-                    logger.info(f"----------------------------------------------------")
+                    logger.info("저장된 카페 수가 충분해 redis 내에서 추천합니다")
+                    logger.info("----------------------------------------------------")
                     input_data["cached_cafe_lists"] = cached_cafe_lists
-                                        
+
                     draft_result = await self.draft_crew.kickoff_async(inputs=input_data)
                     spots_dict = draft_result.pydantic.model_dump()
-                    cafes_to_save = [
-                        spot["kor_name"] for spot in spots_dict.get("spots", [])
-                    ]
-                    logger.info(f"🟢 spots to save: {cafes_to_save}")
+                    cafes_to_save = [spot["kor_name"] for spot in spots_dict.get("spots", [])]
+                    logger.info(f"spots to save: {cafes_to_save}")
 
                     await redis_service.add_spots(
                         member_id=member_id,
@@ -261,85 +264,73 @@ class CafeAgentService:
                         main_location=input_data["main_location"],
                         spots=cafes_to_save,
                     )
-                    return spots
-                
+                    return spots_dict
                 except Exception as e:
                     logger.error(f"Redis 저장 중 오류 발생: {e}")
                     traceback.print_exc()
 
-            # 캐싱된 정보 수가 부족할때,
-            input_data["cached_cafe_lists"]=""
-                            
-            #  Redis/DB 로직 실행(중복확인)
+            # 7. 캐싱된 정보가 부족할 경우 캐싱 데이터를 비움
+            input_data["cached_cafe_lists"] = ""
+
+            # 8. 신규 일정인지 기존 일정인지에 따라 기존 장소 데이터 조회
             if not input_data.get("plan_id"):
-                # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
-                logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
+                # 신규 일정: Redis에서 제외할 장소 조회
+                logger.info("새로 생성된 일정: Redis 사용 로직 실행 시작")
                 try:
                     redis_excluded_spots = await redis_service.get_spots(
-                        category=SpotCategory.RESTAURANT,
+                        member_id=member_id,
+                        category=SpotCategory.CAFE,  # 필요에 따라 SpotCategory.CAFE로 수정 가능
                         main_location=input_data["main_location"],
                     )
                     if redis_excluded_spots:
-                        existing_spot_names = redis_excluded_spots
-                        logger.info(
-                            f"🟢 Redis에서 가져온 제외 카페 목록: {redis_excluded_spots}"
-                        )
+                        input_data["existing_spot_names"] = redis_excluded_spots
+                        logger.info(f"Redis에서 가져온 제외 카페 목록: {redis_excluded_spots}")
                 except Exception as e:
                     logger.error(f"Redis 조회 중 오류 발생: {e}")
             else:
-                # 기존 일정 수정의 경우 - DB 사용
+                # 기존 일정 수정: DB에서 기존 장소 조회
                 current_plan_id = input_data.get("plan_id")
-                print(f"🟡 current_plan_id: {current_plan_id}")
-
+                logger.info(f"current_plan_id: {current_plan_id}")
                 try:
-                    # 현재 plan이 해당 member의 것인지 확인
-                    plan_spots_with_spot_info = await get_member_plan_spots(
-                        current_plan_id, member_id, session
-                    )
-
+                    plan_spots_with_spot_info = await get_member_plan_spots(current_plan_id, member_id, session)
                     if not plan_spots_with_spot_info:
                         latest_plan = await get_latest_plan(member_id, session)
                         if latest_plan:
-                            plan_spots_with_spot_info = await get_member_plan_spots(
-                                latest_plan.id, member_id, session
-                            )
-                            logger.info(f"🟡 최신 plan_id 사용: {latest_plan.id}")
+                            plan_spots_with_spot_info = await get_member_plan_spots(latest_plan.id, member_id, session)
+                            logger.info(f"최신 plan_id 사용: {latest_plan.id}")
                     else:
-                        logger.info(f"🟡 전달받은 plan_id 사용: {current_plan_id}")
+                        logger.info(f"전달받은 plan_id 사용: {current_plan_id}")
 
-                    if (
-                        plan_spots_with_spot_info
-                        and "detail" in plan_spots_with_spot_info
-                    ):
+                    if plan_spots_with_spot_info and "detail" in plan_spots_with_spot_info:
                         existing_spot_names = [
-                            item["spot"].kor_name
-                            for item in plan_spots_with_spot_info["detail"]
+                            item["spot"].kor_name for item in plan_spots_with_spot_info["detail"]
                         ]
-                        logger.info(
-                            f"🟡 DB에서 가져온 기존 장소들: {existing_spot_names}"
-                        )
+                        logger.info(f"DB에서 가져온 기존 장소들: {existing_spot_names}")
                         input_data["existing_spot_names"] = existing_spot_names
                 except Exception as e:
-                    logger.error(f"🟡 DB 장소 조회 중 오류 발생: {e}")
-                    traceback.print_exc()                    
-    
-            # 에이전트 실행
+                    logger.error(f"DB 장소 조회 중 오류 발생: {e}")
+                    traceback.print_exc()
+
+            # 9. 메인 에이전트를 실행하여 카페 추천 결과 도출
             result = await self.crew.kickoff_async(inputs=input_data)
             spots = result.pydantic.model_dump()
-            
+
+            # 10. 새로 찾은 카페들을 Redis 캐싱(하루 뒤 만료)
             spots_dummies = self.tasks['reviewer_task'].output.pydantic.model_dump()
-            # 새로 찾은 카페들 redis에 저장(하루뒤 만료)
-            await caching_service.add_spots(category="cafe", main_location=input_data["main_location"], spots=spots_dummies)              
-            
-            # plan_id가 없는 경우, 결과를 Redis에 저장
+            await caching_service.add_spots(
+                category=SpotCategory.CAFE,
+                main_location=input_data["main_location"],
+                spots=spots_dummies
+            )
+
+            # 11. 신규 일정인 경우 Redis에 결과 저장
             if not input_data.get("plan_id") and redis_client:
                 try:
-                    cafes_to_save = [
-                        spot["kor_name"] for spot in spots.get("spots", [])
-                    ]
-                    logger.info(f"🟢 spots to save: {cafes_to_save}")
+                    cafes_to_save = [spot["kor_name"] for spot in spots.get("spots", [])]
+                    logger.info(f"spots to save: {cafes_to_save}")
 
                     await redis_service.add_spots(
+                        member_id=member_id,
                         category=SpotCategory.CAFE,
                         main_location=input_data["main_location"],
                         spots=cafes_to_save,
@@ -347,25 +338,8 @@ class CafeAgentService:
                 except Exception as e:
                     logger.error(f"Redis 저장 중 오류 발생: {e}")
                     traceback.print_exc()
-                
-                return spots  
+
+            return spots
 
         except Exception as e:
-            logger.info(f"[CafeAgent] 에러 - {e}")                
-                
-# {
-#   "ages": "20대",
-#   "companion_count": [
-#     {
-#       "label": "성인",
-#       "count": 2
-#     }
-#   ],
-#   "start_date": "2025-02-12",
-#   "end_date": "2025-02-12",
-#   "concepts": [
-#     "힐링"
-#   ],
-#   "main_location": "서울",
-#   "prompt": ""
-# }
+            logger.info(f"[CafeAgent] 에러 - {e}")

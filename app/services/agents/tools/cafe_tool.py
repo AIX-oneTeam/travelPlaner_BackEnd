@@ -23,7 +23,7 @@ AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")   
     
 class NaverBlogSearchTool(BaseTool):
-    name: str = "NaverBlogCralwer"
+    name: str = "NaverBlogSearchTool"
     description: str = "블로그를 검색하고 url에서 카페 정보 추출"
     
     async def _fetch_query(self, client: httpx.AsyncClient, query: str) -> str:
@@ -93,7 +93,7 @@ class NaverBlogSearchTool(BaseTool):
         simplified_location = simplify_address(main_location)
         # keywords가 비어있으면 기본 검색어를 사용
         if keywords:
-            keywords_query = f"{simplified_location} 카페 +{' +'.join(keywords)}"
+            keywords_query = f"{simplified_location} 카페 +{' '.join(keywords)}"
         else:
             keywords_query = f"{simplified_location} 카페"
         
@@ -175,7 +175,7 @@ class NaverBlogSearchTool(BaseTool):
 # print(result)
     
 class NaverReviewCralwerTool(BaseTool):
-    name: str = "NaverReviewCralwer"
+    name: str = "NaverReviewCralwerTool"
     description: str = "네이버 리뷰를 크롤링해 카페 후기 추출"
 
     async def _fetch_review_data(self, client: httpx.AsyncClient, placeId: str) -> str:

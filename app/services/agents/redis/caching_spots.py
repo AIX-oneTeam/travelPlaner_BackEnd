@@ -8,10 +8,11 @@ from datetime import timedelta
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-"""
-에이전트가 찾은 장소 Redis 저장, 조회
-category: site, accommodation, restaurant, cafe
-"""
+class SpotCategory(str, Enum):
+    CAFE = "cafe"
+    RESTAURANT = "restaurant"
+    SITE = "site"
+    ACCOMMODATION = "accommodation"
 
 class SpotCachingService:
     """Redis를 활용한 장소 관리 서비스"""
@@ -24,18 +25,26 @@ class SpotCachingService:
         :param redis: 의존성 주입된 Redis 인스턴스
         """
         self.redis = redis_client
-                
-    async def add_spots(self, category:str, main_location:str, spots: dict) -> None:
+        
+    def _generate_key(self, category: SpotCategory, main_location: str) -> str:
+        """Redis 키 생성
+        Args:
+            category: 숙소/관광지/맛집/카페
+            main_location: 지역 정보
+        """
+        return f"{category.value}:{main_location}"   
+            
+    async def add_spots(self, category:SpotCategory, main_location:str, spots: dict) -> None:
         try:
             # Redis 연결 확인
             await self.redis.ping()
-            logger.info("Redis connection successful")
+            logger.info("🟣 [CachingSpots] Redis connection successful")
             # 전달 받은 데이터 확인
-            logger.info(f"🟣 캐싱 ---- Received spots data: {spots}")
-            logger.info(f"🟣 캐싱 ---- Location: {main_location}")
-            logger.info(f"🟣 캐싱 ---- Category: {category}")
+            logger.info(f"🟣 [CachingSpots] Received spots data: {spots}")
+            logger.info(f"🟣 [CachingSpots] Location: {main_location}")
+            logger.info(f"🟣  [CachingSpots] Category: {category}")
 
-            key = f"{category}:{main_location}"
+            key = self._generate_key(category, main_location)
             added_count = 0
 
             for spot in spots.get("spots", []):
@@ -51,8 +60,8 @@ class SpotCachingService:
             logger.error(f"🟣 [CachingSpots] - add_spot : 저장 중 오류 발생: {str(e)}")
             raise
         
-    async def get_spots(self, category:str, main_location: str):
-        key = f"{category}:{main_location}"
+    async def get_spots(self, category:SpotCategory, main_location: str):
+        key = self._generate_key(category, main_location)
         spots = await self.redis.smembers(key)  # Redis SET에서 모든 값 가져오기
         return [json.loads(spot) for spot in spots]  # JSON을 다시 dict로 변환
 
