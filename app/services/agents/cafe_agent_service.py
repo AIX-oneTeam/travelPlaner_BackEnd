@@ -62,10 +62,10 @@ class CafeAgentService:
     def _create_agents(self) -> Dict[str, Agent]:
         return {
             "collector" : Agent(
-                role="카페 기본 정보 수집 및 위치 검증가",
-                goal="카페의 기본 정보를 수집하고 고객의 여행 지역에 위치하지 않은 카페는 삭제합니다.",
+                role="카페 검색 및 위치 검증가",
+                goal="카페를 검색하고 고객의 여행 지역에 위치하지 않은 카페는 삭제합니다.",
                 backstory="""
-                블로그에서 카페의 기본 정보를 수집하고, 고객의 여행 지역에 위치하지 않은 카페는 리스트에서 삭제해주세요. 
+                블로그에서 사용자의 조건에 맞는 카페를 검색하고, 고객의 여행 지역에 위치하지 않은 카페는 리스트에서 삭제해주세요. 
                 포스팅된 횟수가 많은 카페부터 내림차순으로 정렬해주세요
                 """,
                 tools=[self.get_cafe_search_tool],
@@ -118,10 +118,14 @@ class CafeAgentService:
         return {
             "collector_task" : Task(
                 description="""
-                1. tool 사용시 "{main_location}"과 "keywords"를 순서대로 입력하세요.
+                1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트를 생성하세요.
+                - 단, "해산물"처럼 카페와 상관 없는 키워드는 생성하지 마세요.
+                - 각 키워드는 형용사 또는 명사인 하나의 단어여야 하고, 비슷한 의미를 가진 단어는 1개만 사용하세요.
+                - 키워드는 1개이상 3개 이하로 선택하세요. 1개로 충분하다면 불필요하게 3개 까지 생성하지 마세요.
+                - 키워드로 "카페" 또는 "지역명" 또는 "추천"은 사용하지 마세요.
+                2. tool 사용시 "{main_location}"과 "생성한 키워드 리스트"를 순서대로 입력하세요.
                 - keywords : 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영한 키워드 리스트, 갯수는 prompt와 concepts의 수 미만  
-                - 각각의 키워드는 하나의 형용사 또는 명사여야 하고, "카페"와 "지역명" "추천"은 제외해주세요. 의미가 비슷한 키워드는 1가지만 사용하세요.
-                2. 지역이 {main_location}에 위치하지 않는 곳은 삭제해주세요.
+                3. 지역이 {main_location}에 위치하지 않는 곳은 삭제해주세요.
                 """,
                 expected_output="""
                 n_posting이 큰 순으로 내림차순 해주세요.
@@ -190,7 +194,7 @@ class CafeAgentService:
                 4. 중복되지 않은 서로 다른 카페 리스트를 반환해주세요.
                 참고 카페 리스트 : {cached_cafe_lists}
                 반드시 기존에 추천된 카페를 제외하고, 서로 다른 {n}개의 카페를 반환하세요.
-                기존에 추천된 카페: {existing_spot_name}
+                기존에 추천된 카페: {existing_spot_names}
                 """,
                 expected_output="""
                 spot_time 예상 방문 시간을 `hh:00` 형식으로 반환하고, 모두 다른 값으로 해주세요.
@@ -211,6 +215,11 @@ class CafeAgentService:
         사용자 맞춤 카페를 추천하는 에이전트
         """  
         try:
+            # member_id 조회
+            if input_data.get("email") and session:
+                member_id = await get_memberId_by_email(input_data["email"], session) or ""
+                logger.info(f"🔵 member_id 조회됨: {bool(member_id)}")
+                
             # 데이터 유무 확인
             logger.info(f"🔵 email 존재: {bool(input_data.get('email'))}")
             logger.info(f"🔵 session 존재: {bool(session)}")
@@ -229,6 +238,8 @@ class CafeAgentService:
             days = calculate_trip_days(input_data.get('start_date',''),input_data.get('end_date',''))
             input_data["days"] = days
             input_data["n"] = 5 if input_data["prompt"] else days*2
+            input_data["existing_spot_names"] = []
+            input_data["member_id"] = member_id
             
             # 초안 에이전트 실행시, 카페 갯수가 충분하면 캐싱한 정보 내에서 추천
             if (not input_data["prompt"]) and len(cached_cafe_lists) >= days*2:
@@ -245,6 +256,7 @@ class CafeAgentService:
                     logger.info(f"🟢 spots to save: {cafes_to_save}")
 
                     await redis_service.add_spots(
+                        member_id=member_id,
                         category=SpotCategory.CAFE,
                         main_location=input_data["main_location"],
                         spots=cafes_to_save,
@@ -258,66 +270,58 @@ class CafeAgentService:
             # 캐싱된 정보 수가 부족할때,
             input_data["cached_cafe_lists"]=""
                             
-            existing_spot_names = []
-            member_id = None
-            # member_id 조회 Redis/DB 로직 실행(중복확인)
-            if input_data.get("email") and session:
-                member_id = await get_memberId_by_email(input_data["email"], session)
-                logger.info(f"🔵 member_id 조회됨: {bool(member_id)}")
-
-                if not input_data.get("plan_id"):
-                    # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
-                    logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
-                    try:
-                        redis_excluded_spots = await redis_service.get_spots(
-                            category=SpotCategory.RESTAURANT,
-                            main_location=input_data["main_location"],
+            #  Redis/DB 로직 실행(중복확인)
+            if not input_data.get("plan_id"):
+                # 새로 생성된 일정이거나 plan_id 없는 경우 - Redis 사용
+                logger.info("🟢 새로 생성된 일정: Redis 사용 로직 실행 시작")
+                try:
+                    redis_excluded_spots = await redis_service.get_spots(
+                        category=SpotCategory.RESTAURANT,
+                        main_location=input_data["main_location"],
+                    )
+                    if redis_excluded_spots:
+                        existing_spot_names = redis_excluded_spots
+                        logger.info(
+                            f"🟢 Redis에서 가져온 제외 카페 목록: {redis_excluded_spots}"
                         )
-                        if redis_excluded_spots:
-                            existing_spot_names = redis_excluded_spots
-                            logger.info(
-                                f"🟢 Redis에서 가져온 제외 카페 목록: {redis_excluded_spots}"
-                            )
-                    except Exception as e:
-                        logger.error(f"Redis 조회 중 오류 발생: {e}")
-                else:
-                    # 기존 일정 수정의 경우 - DB 사용
-                    current_plan_id = input_data.get("plan_id")
-                    print(f"🟡 current_plan_id: {current_plan_id}")
+                except Exception as e:
+                    logger.error(f"Redis 조회 중 오류 발생: {e}")
+            else:
+                # 기존 일정 수정의 경우 - DB 사용
+                current_plan_id = input_data.get("plan_id")
+                print(f"🟡 current_plan_id: {current_plan_id}")
 
-                    try:
-                        # 현재 plan이 해당 member의 것인지 확인
-                        plan_spots_with_spot_info = await get_member_plan_spots(
-                            current_plan_id, member_id, session
+                try:
+                    # 현재 plan이 해당 member의 것인지 확인
+                    plan_spots_with_spot_info = await get_member_plan_spots(
+                        current_plan_id, member_id, session
+                    )
+
+                    if not plan_spots_with_spot_info:
+                        latest_plan = await get_latest_plan(member_id, session)
+                        if latest_plan:
+                            plan_spots_with_spot_info = await get_member_plan_spots(
+                                latest_plan.id, member_id, session
+                            )
+                            logger.info(f"🟡 최신 plan_id 사용: {latest_plan.id}")
+                    else:
+                        logger.info(f"🟡 전달받은 plan_id 사용: {current_plan_id}")
+
+                    if (
+                        plan_spots_with_spot_info
+                        and "detail" in plan_spots_with_spot_info
+                    ):
+                        existing_spot_names = [
+                            item["spot"].kor_name
+                            for item in plan_spots_with_spot_info["detail"]
+                        ]
+                        logger.info(
+                            f"🟡 DB에서 가져온 기존 장소들: {existing_spot_names}"
                         )
-
-                        if not plan_spots_with_spot_info:
-                            latest_plan = await get_latest_plan(member_id, session)
-                            if latest_plan:
-                                plan_spots_with_spot_info = await get_member_plan_spots(
-                                    latest_plan.id, member_id, session
-                                )
-                                logger.info(f"🟡 최신 plan_id 사용: {latest_plan.id}")
-                        else:
-                            logger.info(f"🟡 전달받은 plan_id 사용: {current_plan_id}")
-
-                        if (
-                            plan_spots_with_spot_info
-                            and "detail" in plan_spots_with_spot_info
-                        ):
-                            existing_spot_names = [
-                                item["spot"].kor_name
-                                for item in plan_spots_with_spot_info["detail"]
-                            ]
-                            logger.info(
-                                f"🟡 DB에서 가져온 기존 장소들: {existing_spot_names}"
-                            )
-                    except Exception as e:
-                        logger.error(f"🟡 DB 장소 조회 중 오류 발생: {e}")
-                        traceback.print_exc()
-            
-            input_data["existing_spot_names"] = existing_spot_names
-            input_data["member_id"] = member_id                        
+                        input_data["existing_spot_names"] = existing_spot_names
+                except Exception as e:
+                    logger.error(f"🟡 DB 장소 조회 중 오류 발생: {e}")
+                    traceback.print_exc()                    
     
             # 에이전트 실행
             result = await self.crew.kickoff_async(inputs=input_data)
