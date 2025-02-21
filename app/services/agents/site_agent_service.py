@@ -9,7 +9,7 @@ from redis.asyncio import Redis
 import logging
 import os
 from dotenv import load_dotenv
-
+from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.dtos.spot_models import spots_pydantic
 from app.utils.calculate_trip_days import calculate_trip_days
 from app.utils.time_check import time_check
@@ -162,6 +162,7 @@ class TouristAgentService:
         existing_spots_text = ", ".join(existing_spots) if existing_spots else "없음"
         main_location = input_data.get("main_location", "지역 미지정")
 
+        # spot_time 관련 항목 제거 (day와 order는 UI 그룹화를 위해 남김)
         json_schema_prompt = (
             "{{\n"
             '  "kor_name": string,\n'
@@ -173,8 +174,7 @@ class TouristAgentService:
             '  "spot_category": number,\n'
             '  "phone_number": string or null,\n'
             '  "business_status": boolean or null,\n'
-            '  "business_hours": string or null,\n'
-            '  "spot_time": string or null\n'
+            '  "business_hours": string or null\n'
             "}}"
         )
 
@@ -272,6 +272,26 @@ class TouristAgentService:
         spot_redis_service = SpotRedisService(redis_client)
 
         try:
+            # Ensure member_id is present, with fallback to session if needed
+            if "member_id" not in input_data or not input_data["member_id"]:
+                if session is None:
+                    raise ValueError(
+                        "[TouristAgent] 에러 - member_id가 필요하며, 세션이 제공되지 않았습니다."
+                    )
+                # Fetch member_id using email from input_data
+                email = input_data.get("email")  # Try to get email from input_data
+                if not email:
+                    raise ValueError("[TouristAgent] 에러 - email이 필요합니다.")
+                provider = "google"  # Default to Google; adjust if needed
+                member_id = await get_memberId_by_email(email, session, provider)
+                if not member_id:
+                    raise ValueError(
+                        "[TouristAgent] 에러 - 인증된 사용자를 찾을 수 없습니다."
+                    )
+                input_data["member_id"] = member_id
+
+            member_id = input_data["member_id"]
+
             # Task 업데이트 및 확인
             self.tasks = self._create_tasks(input_data, prompt)
             logger.info(
@@ -291,8 +311,13 @@ class TouristAgentService:
 
             # 새로운 일정 생성 (plan_id 없음)
             if not input_data.get("plan_id"):
+                if "main_location" not in input_data or not input_data["main_location"]:
+                    raise ValueError(
+                        "[TouristAgent] 에러 - main_location이 필요합니다."
+                    )
+                main_location = input_data["main_location"]
                 cached_tourist_lists = await spot_redis_service.get_spots(
-                    SpotCategory.SITE, input_data["main_location"]
+                    member_id, SpotCategory.SITE, main_location
                 )
                 input_data["cached_tourist_lists"] = cached_tourist_lists or []
                 logger.info(
@@ -320,7 +345,6 @@ class TouristAgentService:
 
                     # CrewOutput 처리
                     if hasattr(result, "tasks_output"):
-                        # 마지막 태스크 (decider_task)의 결과를 사용
                         final_output = (
                             result.tasks_output[-1].raw if result.tasks_output else None
                         )
@@ -340,19 +364,21 @@ class TouristAgentService:
                     )
                     logger.info(f"[TouristAgent] Final result: {final_result}")
 
-                    # 리스트가 맞는지 확인
                     if not isinstance(final_result, list):
                         raise ValueError(
                             f"[TouristAgent] 에러 - final_result가 리스트가 아님: {type(final_result)}"
                         )
 
-                    # Redis에 저장
-                    spot_names = [spot["kor_name"] for spot in final_result]
+                    # day와 order만 할당 (spot_time 제거)
+                    final_result_with_time = self._assign_spot_times(
+                        final_result, days, input_data
+                    )
+                    spot_names = [spot["kor_name"] for spot in final_result_with_time]
                     await spot_redis_service.add_spots(
-                        SpotCategory.SITE, input_data["main_location"], spot_names
+                        member_id, SpotCategory.SITE, main_location, spot_names
                     )
                     logger.info(f"[TouristAgent] Spots saved to Redis: {spot_names}")
-                    return final_result
+                    return final_result_with_time
 
                 else:
                     # Draft Crew 동적 생성
@@ -396,12 +422,20 @@ class TouristAgentService:
                             f"[TouristAgent] 에러 - final_result가 리스트가 아님: {type(final_result)}"
                         )
 
-                    return final_result
+                    # day와 order만 할당 (spot_time 제거)
+                    final_result_with_time = self._assign_spot_times(
+                        final_result, days, input_data
+                    )
+                    return final_result_with_time
 
             # 기존 일정 수정 (plan_id 있음)
             else:
-                member_id = input_data.get("member_id")
                 current_plan_id = input_data.get("plan_id")
+                if "main_location" not in input_data or not input_data["main_location"]:
+                    raise ValueError(
+                        "[TouristAgent] 에러 - main_location이 필요합니다."
+                    )
+                main_location = input_data["main_location"]
                 plan_spots_with_info = await get_member_plan_spots(
                     current_plan_id, member_id, session
                 )
@@ -416,7 +450,7 @@ class TouristAgentService:
                 else:
                     logger.info("🟡 기존 DB 데이터가 없으므로 Redis 캐시를 사용합니다.")
                     cached_tourist_lists = await spot_redis_service.get_spots(
-                        SpotCategory.SITE, input_data["main_location"]
+                        member_id, SpotCategory.SITE, main_location
                     )
                     input_data["existing_spot_names"] = cached_tourist_lists or []
 
@@ -460,9 +494,43 @@ class TouristAgentService:
                         f"[TouristAgent] 에러 - final_result가 리스트가 아님: {type(final_result)}"
                     )
 
-                return final_result
+                # day와 order만 할당 (spot_time 제거)
+                final_result_with_time = self._assign_spot_times(
+                    final_result, days, input_data
+                )
+                return final_result_with_time
 
         except Exception as e:
             logger.error(f"[TouristAgent] 에러 - {e}")
             traceback.print_exc()
             raise e
+
+    def _assign_spot_times(self, spots: list, days: int, input_data: dict) -> list:
+        """여행 일정에 따른 day와 order를 할당 (spot_time 제거됨)"""
+        sorted_spots = []
+        current_day = 1
+        time_slots = ["08:00", "12:00", "18:00"]  # UI 그룹화를 위한 순서 지정용
+        spot_index = 0
+
+        while current_day <= days and spot_index < len(spots):
+            for time_slot in time_slots:
+                if spot_index >= len(spots):
+                    break
+                spot = spots[spot_index].copy()
+                # spot_time 관련 항목 제거
+                spot["day"] = current_day  # UI 그룹화를 위한 day 정보
+                spot["order"] = time_slots.index(time_slot) + 1  # 순서 지정
+                sorted_spots.append(spot)
+                spot_index += 1
+            current_day += 1
+
+        # 남은 관광지가 있을 경우 마지막 day에 배분
+        while spot_index < len(spots):
+            spot = spots[spot_index].copy()
+            # spot_time 관련 항목 제거
+            spot["day"] = days
+            spot["order"] = len([s for s in sorted_spots if s["day"] == days]) + 1
+            sorted_spots.append(spot)
+            spot_index += 1
+
+        return sorted_spots

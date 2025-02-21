@@ -56,7 +56,7 @@ class TravelPlanRequest(BaseModel):
 async def generate_plan(
     request: Request,
     user_input: TravelPlanRequest,
-    agent_type: List[str] = Query(..., alias="agent_type[]"),
+    agent_type: List[str] = Query(default=[], alias="agent_type[]"),
     session: AsyncSession = Depends(get_async_session),
     redis_client: Redis = Depends(get_redis),
 ):

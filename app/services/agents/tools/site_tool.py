@@ -115,7 +115,7 @@ class NaverTouristImageSearchTool(BaseTool):
 
     async def _arun(self, query: Union[str, dict]) -> str:
         if isinstance(query, dict):
-            query = query.get("description", "")
+            query = query.get("description") or query.get("default_search") or ""
         if not query.strip():
             return ""
         if not AGENT_NAVER_CLIENT_ID or not AGENT_NAVER_CLIENT_SECRET:
