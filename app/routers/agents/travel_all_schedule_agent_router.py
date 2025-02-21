@@ -84,7 +84,7 @@ async def generate_plan(
             
         if "site" in agent_type:
             site_agent_service = TouristAgentService()
-            tasks["site"] = site_agent_service.create_tourist_plan(input_dict)
+            tasks["site"] = site_agent_service.create_tourist_plan(input_data=input_dict, session=session, redis_client=redis_client)
             logger.info(f"Site Agent 결과: {tasks['site']}")
             
         if "cafe" in agent_type:
