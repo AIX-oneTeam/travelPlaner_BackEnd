@@ -25,6 +25,7 @@ from redis.asyncio import Redis
 from app.services.agents.redis.spot_redis import SpotRedisService, SpotCategory
 from app.utils.time_check import time_check
 import logging
+from app.utils.time_check import time_check
 
 logger = logging.getLogger(__name__)
 
