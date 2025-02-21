@@ -15,7 +15,7 @@ class Cafe(BaseModel):
     business_hour: str
     category: str
     description : str
-    peference : str
+    preference : str
     image_url: str
     map_url : str
 

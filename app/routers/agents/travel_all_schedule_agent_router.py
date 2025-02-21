@@ -63,7 +63,7 @@ async def generate_plan(
         input_dict = user_input.model_dump()
 
         # 기본으로 실행할 에이전트 리스트 설정
-        agent_type = ["cafe"] #  ["restaurant", "site", "cafe", "accommodation"]
+        agent_type = ["restaurant", "site", "cafe", "accommodation"]
         input_dict["agent_type"] = agent_type
 
         # 비동기 작업 딕셔너리 생성

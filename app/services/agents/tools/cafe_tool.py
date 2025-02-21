@@ -92,11 +92,7 @@ class NaverBlogSearchTool(BaseTool):
         
         simplified_location = simplify_address(main_location)
         
-        # keywords가 비어있으면 기본 검색어를 사용
-        if keywords:
-            keywords_query = f"{simplified_location} 카페 {' '.join(keywords)}"
-        else:
-            keywords_query = f"{simplified_location} 카페"
+        keywords_query = f"{simplified_location} 카페 {' '.join(keywords)}"
         
         querys =[keywords_query, simplified_location+" 카페"]
         logger.info(f"사용한 검색어 : {querys}")

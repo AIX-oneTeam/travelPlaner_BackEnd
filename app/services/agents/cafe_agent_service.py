@@ -145,7 +145,7 @@ class CafeAgentService:
             "researcher_task" : Task(
                 description="""
                 1. collector가 반환한 카페들의 placeId를 리스트로 묶어 tool의 input값으로 사용하세요.
-                2. tool의 output을 보고 카페의 세부 정보를 수집하고, category에 "카페" 또는 "베이커리" 또는 "디저트" 또는 "브런치"가 포함 되지 않은 장소는 삭제해주세요.
+                2. tool의 output을 보고 카페의 세부 정보를 수집하고, category에 "카페" 또는 "베이커리" 또는 "디저트"가 포함 되지 않은 장소는 삭제해주세요.
                 3. collector가 반환한 값과 tool의 outputd의 정보를 합쳐 반환해주세요.
                 """,
                 expected_output="""
@@ -174,12 +174,14 @@ class CafeAgentService:
                 3. researcher가 반환한 값에 tool_output의 정보를 합쳐 반환해주세요. 
                 4. 카페 특징은 고객 요구사항에 맞는 카페인지 점검할 수 있도록 구체적으로 써주세요.
                 5. 포스팅 횟수가 많고, 긍정적인 리뷰가 많은 카페부터 나열해주세요.
+                description에는 카페 이름, 나이(연령), 부정적인 내용은 반드시 제외해주세요.
+                preference에는 최신 리뷰를 읽고 전체 리뷰 중 긍정적인 리뷰가 얼마나 많은가에 대한 선호도를 %로 나타내주세요.
                 """,
                 expected_output="""
                 n_posting, peference 순으로 내림차순 해주세요.
                 반드시 researcher가 반환한 카페들의 placeId 갯수 만큼 카페를 반환해주세요.
                 description : 카페의 주요 특징과 분위기, 시그니처메뉴, 사람들이 공통적으로 좋아했던 부분을 요약
-                peference : 선호도 %
+                preference : 선호도 %
                 map_url : https://map.kakao.com/link/map/"위도","경도"
                 """,        
                 agent=self.agents["reviewer"],
