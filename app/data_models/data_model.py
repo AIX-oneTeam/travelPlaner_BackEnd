@@ -41,7 +41,7 @@ class Member(SQLModel, table=True):
     )
 
     plans: List["Plan"] = Relationship(back_populates="member")
-
+    inquiries: list["Inquiry"] = Relationship(back_populates="member")
 
     # 전화번호 유효성 검사
     @field_validator("phone_number")
@@ -126,7 +126,7 @@ class Spot(SQLModel, table=True):
         elif isinstance(value, int) and value in {0, 1}:
             return value
         raise ValueError("Invalid value for business_status. Must be a boolean, 'true'/'false', or 0/1.")
-   
+
 class PlanSpotMap(SQLModel, table=True):
     __tablename__ = "plan_spot_map"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -151,7 +151,7 @@ class SpotTag(SQLModel, table=True):
     spot_tag: str = Field(max_length=255)
 
     spot_tags: List["PlanSpotTagMap"] = Relationship(back_populates="spot_tag")
-    
+
 class PlanSpotTagMap(SQLModel, table=True):
     __tablename__ = "plan_spot_tag_map"
     spot_id: int = Field(foreign_key="spot.id", primary_key=True)
@@ -186,3 +186,33 @@ class ImageUrl(SQLModel, table=True):
     updated_at: datetime = Field(
         sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
     )
+
+
+class Inquiry(SQLModel, table=True):
+    __tablename__ = "inquiry"
+
+    inquiry_id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int = Field(foreign_key="member.id")
+    title: str = Field(..., max_length=255)
+    content: str = Field(
+        ..., max_length=5000
+    )
+    answer: Optional[str] = Field(
+        default=None, max_length=5000
+    )
+    status: str = Field(default="pending", max_length=20)
+    created_at: datetime = Field(
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
+    )
+    updated_at: datetime = Field(
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
+    ) 
+    answered_at: Optional[datetime] = Field(default=None) 
+
+    member: "Member" = Relationship(back_populates="inquiries")

@@ -27,6 +27,7 @@ from app.routers.chceklists.checklist_router import router as checklist_router
 from app.routers.redis_test import router as redis_test_router
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.routers.voice_router import router as voice_router
+from app.routers.inquiries.inquiry_router import router as inquiry_router
 import os
 from dotenv import load_dotenv
 import logging
@@ -76,6 +77,8 @@ PUBLIC_PATHS = {
     "/oauths/kakao/callback",  # 카카오 OAuth
     "/oauths/naver/callback",  # 네이버 OAuth
     "/test/",  # 테스트 경로
+    "/inquiries/all",
+    "/inquiries/all/",
 }
 
 
@@ -259,4 +262,4 @@ app.include_router(checklist_router, prefix="/checklist", tags=["checklists"])
 app.include_router(redis_test_router, prefix="/redis", tags=["redis"])
 app.include_router(voice_router, prefix="/voice", tags=["voice"])
 app.include_router(redis_test_router, prefix="/redis-test", tags=["redis-test"])
-
+app.include_router(inquiry_router, prefix="/inquiries", tags=["inquiry"])
