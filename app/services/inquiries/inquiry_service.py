@@ -64,7 +64,7 @@ async def answer_inquiry(inquiry_id: int, answer_text: str, session: AsyncSessio
     if not inquiry_obj:
         return None
 
-    # 3. 답변 저장 (Inquiry 인스턴스를 전달)
+    # 3. 답변 저장
     updated_inquiry_dict = await save_answer(inquiry_obj, answer_text, session)
 
     # 4. 문의 작성자의 회원 정보 조회 (Member 객체에서 직접 이메일 조회)
