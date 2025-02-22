@@ -35,9 +35,8 @@ async def create_inquiry_route(
                 email=member_email, session=session, provider=provider
             )
         else:
-            member_id = await get_memberId_by_email(
-                email=request_data.email, session=session
-            )
+            # 인증되지 않은 경우 에러 반환
+            return ErrorResponse(message="인증이 필요한 서비스입니다.", status_code=401)
 
         # 문의 등록
         inquiry_id = await create_inquiry(
@@ -73,8 +72,9 @@ async def read_inquiry(
 
 
 # 관리자: 전체 문의 조회
-@router.get("/all")
+@router.get("/admin/all")
 async def read_all_inquiries(
+    request: Request,
     session: AsyncSession = Depends(get_async_session),
 ):
     try:
@@ -97,7 +97,7 @@ async def read_all_inquiries(
 
 
 # 관리자: 문의에 답변 등록 + 사용자 이메일 발송
-@router.put("/answer/{inquiry_id}")
+@router.put("/admin/answer/{inquiry_id}")
 async def answer_inquiry_route(
     inquiry_id: int,
     answer_text: str,
