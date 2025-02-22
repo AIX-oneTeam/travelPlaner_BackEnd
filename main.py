@@ -183,7 +183,7 @@ async def jwt_auth_middleware(request: Request, call_next):
         request.state.user = None
         return ErrorResponse(
             status_code=500,
-            error_code=str(e),
+            error_detail=str(e),
             message="jwt 미들웨어에서 발생한 오류",
         )
 

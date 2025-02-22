@@ -15,7 +15,7 @@ from app.repository.images.image_url_repository import get_image_url, save_image
 logger = logging.getLogger("restaurant_agent_tools")
 logger.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('logs/restaurant_agent_service.log')
+file_handler = logging.FileHandler('logs/restaurant_agent_service.log', encoding="utf-8")
 file_handler.setLevel(logging.INFO)
 
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
