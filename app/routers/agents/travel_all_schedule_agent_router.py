@@ -78,7 +78,10 @@ async def generate_plan(
         # 기본으로 실행할 에이전트 리스트 설정
         agent_type = ["accommodation", "cafe", "restaurant", "site"]
         input_dict["agent_type"] = agent_type
-        input_dict["email"] = get_member_id_by_request(request, session)
+        input_dict["member_id"] = await get_member_id_by_request(request, session)
+        input_dict["provider"] = request.state.user.get("provider")
+        input_dict["email"] = request.state.user.get("email")
+        logger.info(f"input_dict: {input_dict}")
 
 
         # 비동기 작업 딕셔너리 생성
