@@ -272,7 +272,7 @@ class TouristAgentService:
                 email = input_data.get("email")
                 if not email:
                     raise ValueError("[TouristAgent] 에러 - email이 필요합니다.")
-                provider = "google"
+                provider = input_data.get("provider")
                 member_id = await get_memberId_by_email(email, session, provider)
                 if not member_id:
                     raise ValueError(
