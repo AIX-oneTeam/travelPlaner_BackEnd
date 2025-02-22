@@ -9,12 +9,16 @@ from app.repository.inquiries.inquiry_repository import (
 from datetime import datetime, timezone
 import logging
 import smtplib
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 # 이메일 발송을 위한 계정 정보
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_USER = "dud9902@gmail.com"  # 발신자 이메일 입력
-SMTP_PASSWORD = "fojt ezxy rkub csri"  # Gmail에서 발급한 앱 비밀번호 입력
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +54,7 @@ async def get_all_inquiries_service(session: AsyncSession):
 
 # 관리자: 문의 답변 등록 및 이메일 발송
 async def answer_inquiry(inquiry_id: int, answer_text: str, session: AsyncSession):
-    # 1. 기존 get_inquiry를 사용해 문의 존재 여부 확인 (dict 반환)
+    # 1. 기존 get_inquiry를 사용해 문의 존재 여부 확인
     inquiry_dict = await get_inquiry(inquiry_id, session)
     if not inquiry_dict:
         return None

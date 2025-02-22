@@ -70,7 +70,7 @@ async def save_answer(inquiry: Inquiry, answer_text: str, session: AsyncSession)
         "member_id": inquiry.member_id,
         "title": inquiry.title,
         "content": inquiry.content,
-        "answer": inquiry.answer,  # inquiry 객체에서 answer 속성에 접근
+        "answer": inquiry.answer,
         "status": inquiry.status,
         "created_at": inquiry.created_at.isoformat(),
         "updated_at": inquiry.updated_at.isoformat(),
