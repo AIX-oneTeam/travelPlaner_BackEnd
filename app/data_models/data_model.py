@@ -1,5 +1,5 @@
 from datetime import datetime, time
-from sqlalchemy import Column, Double
+from sqlalchemy import Column, Double, DateTime
 from typing import List, Optional
 import phonenumbers
 from pydantic import field_validator
@@ -202,17 +202,19 @@ class Inquiry(SQLModel, table=True):
     )
     status: str = Field(default="pending", max_length=20)
     created_at: datetime = Field(
-        sa_column_kwargs={
-            "server_default": text("CURRENT_TIMESTAMP"),
-            "nullable": False,
-        }
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        )
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={
-            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
-            "nullable": False,
-        }
-    ) 
+        sa_column=Column(
+            DateTime(timezone=True),
+            server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            nullable=False,
+        )
+    )
     answered_at: Optional[datetime] = Field(default=None) 
 
     member: "Member" = Relationship(back_populates="inquiries")
