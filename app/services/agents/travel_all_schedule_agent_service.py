@@ -99,7 +99,7 @@ class TravelScheduleAgentService:
             
         - 마지막일({end_date}와 동일한 날) 형식:
         - end_date와 동일한 마지막 날짜에는 반드시 하나의 식당 데이터만 가질 수 있도록 한다. 
-            - 오직 spot_time: 13:00 고정 : 다섯 번째 restaurant 데이터 (점심 식사 후 일정 종료)만 생성
+            - 오직 spot_time: 13:00 고정 : restaurant 데이터 (점심 식사 후 일정 종료)만 생성
 
         3. 각 날짜의 일정이 모두 생성되면 기본day_x의 값은 1이다 day_x: 1 부터 시작, 다음 날짜(day_x 값은 1씩 증가)로 넘어간다.
         4. restaurant, cafe, site ,accommodation의중에서 조건에 맞게 장소를 선택하며, **각 장소는 반드시 위도(latitude)와 경도(longitude) 정보를 포함해야 한다.**
@@ -115,7 +115,7 @@ class TravelScheduleAgentService:
             - `spot_category`: 장소 카테고리 (필수)
             - `spot_time`: 방문 시간 (필수)
             - `address`: 장소의 주소 (선택)
-            - `description`: 장소 설명 (선택)
+            - `description`: 장소 설명 (필수)
             - `phone_number`: 연락처 (선택)
         10. 각각의 장소는 중복된 장소를 추천하지 않는다.
         11. 20:30분은 accommodation 숙소를 꼭 넣어야한다.
@@ -127,6 +127,11 @@ class TravelScheduleAgentService:
         3. 그렇지 않으면 13:00, 14:30, 16:00, 17:30, 19:00, 20:30 슬롯을 순차적으로 생성.
         4. 최종적으로 각 날짜별로 day_x, order, spot_time이 할당된 여행 일정을 생성한다.
         5. ***day_x 는 1부터 시작 기본값이 day_x: 1
+        6. 외부 데이터 내부에  spot_category는 1번이 관광지 2번이 맛집 3번이 카페 4번이 숙소이다. **중요
+        7.   - 마지막일({end_date}와 동일한 날) 형식: **** 제일 중요
+            - end_date와 동일한 마지막 날짜에는 반드시 하나의 식당 데이터만 가질 수 있도록 한다. 
+            - 오직 spot_time: 13:00 고정 : restaurant 데이터 (점심 식사 후 일정 종료)만 생성
+        8. 기존 일정이 완료 되었을때 다음날 일정에 중복 데이터 포함 x -** 한번 사용했던 장소는 중복추천 x
         """
         return [Task(
             description=task_description,

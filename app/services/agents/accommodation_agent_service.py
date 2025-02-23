@@ -253,6 +253,7 @@ class AccommodationAgentService:
                 link :  https://www.google.com/travel/search?q=title title은 각 숙소의 이름이다. 절대 'https://www.example.com/title' 사용금지 .
                 spot_category: 0 으로 항상 고정
                 spot_time : 22:00:00 으로 항상 고정 
+                spot_category : 4 로 항상 고정
                 """,
                 agent=self.agents["accommodation_list_expert"],
                 expected_output="""
