@@ -28,6 +28,7 @@ from app.routers.redis_test import router as redis_test_router
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.routers.voice_router import router as voice_router
 from app.routers.inquiries.inquiry_router import router as inquiry_router
+from app.routers.survey.survey_router import router as survey_router
 import os
 from dotenv import load_dotenv
 import logging
@@ -263,3 +264,4 @@ app.include_router(redis_test_router, prefix="/redis", tags=["redis"])
 app.include_router(voice_router, prefix="/voice", tags=["voice"])
 app.include_router(redis_test_router, prefix="/redis-test", tags=["redis-test"])
 app.include_router(inquiry_router, prefix="/inquiries", tags=["inquiry"])
+app.include_router(survey_router, prefix="/survey", tags=["survey"])

@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time ,timezone
 from sqlalchemy import Column, Double
 from typing import List, Optional
 import phonenumbers
@@ -42,6 +42,7 @@ class Member(SQLModel, table=True):
 
     plans: List["Plan"] = Relationship(back_populates="member")
     inquiries: list["Inquiry"] = Relationship(back_populates="member")
+    survey_responses: List["SurveyResponse"] = Relationship(back_populates="member")
 
     # 전화번호 유효성 검사
     @field_validator("phone_number")
@@ -212,7 +213,21 @@ class Inquiry(SQLModel, table=True):
             "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
             "nullable": False,
         }
-    ) 
+    )
+
+   
+    
     answered_at: Optional[datetime] = Field(default=None) 
 
     member: "Member" = Relationship(back_populates="inquiries")
+
+class SurveyResponse(SQLModel, table=True):
+    __tablename__ = "survey_response"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int = Field(foreign_key="member.id")  # foreign_key 추가
+    plan_id: Optional[int] = Field(default=None)
+    rating: int = Field(default=0)
+    comment: str = Field(default="", max_length=500)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    answered_at: Optional[datetime] = Field(default=None)
+    member: "Member" = Relationship(back_populates="survey_responses")
