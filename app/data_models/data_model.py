@@ -256,18 +256,10 @@ class Inquiry(SQLModel, table=True):
     answer: Optional[str] = Field(default=None, max_length=5000)
     status: str = Field(default="pending", max_length=20)
     created_at: datetime = Field(
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=text("CURRENT_TIMESTAMP"),
-            nullable=False,
-        )
+        sa_column=Column(DateTime(timezone=True), nullable=False)
     )
     updated_at: datetime = Field(
-        sa_column=Column(
-            DateTime(timezone=True),
-            server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
-            nullable=False,
-        )
+        sa_column=Column(DateTime(timezone=True), nullable=False)
     )
     answered_at: Optional[datetime] = Field(default=None)
 
