@@ -113,7 +113,7 @@ class TravelScheduleAgentService:
             - `latitude`: 위도 (필수)
             - `longitude`: 경도 (필수)
             - `spot_category`: 장소 카테고리 (필수)
-            - `spot_time`: 방문 시간 (필수)
+            - `***spot_time`: 방문 시간 (위에 고정되어있는 시간을 넣어라.)
             - `address`: 장소의 주소 (선택)
             - `description`: 장소 설명 (필수)
             - `phone_number`: 연락처 (선택)
