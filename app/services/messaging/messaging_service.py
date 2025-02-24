@@ -44,7 +44,7 @@ async def send_push_message(request:Request, session:AsyncSession, title:str, bo
                 logger.info("💡[ travel_all_schedule_agent_router ] 회원 정보가 없습니다. 푸시 메시지 전송 실패.")
                 raise HTTPException(status_code=401, detail="회원 정보가 없습니다.")
         except Exception as e:
-            logger.error("💡[ travel_all_schedule_agent_router ] 푸시 메시지 전송 오류: ", e)
+            logger.error("💡[ travel_all_schedule_agent_router ] 푸시 메시지 전송 오류: {e}")
 
 
 

@@ -14,6 +14,17 @@ from app.services.agents.tools.all_schedule_agent_tool import HaversineRouteOpti
 import logging
 import json
 
+logger = logging.getLogger("all_schedule_agent_service")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/all_schedule_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)

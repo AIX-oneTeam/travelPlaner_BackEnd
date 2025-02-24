@@ -8,7 +8,20 @@ from crewai.tools import BaseTool
 from typing import List, Dict, Union
 from dotenv import load_dotenv
 import logging
-logger = logging.getLogger(__name__)
+
+from app.repository.db import get_async_session_manual
+from app.repository.images.image_url_repository import get_image_url, save_image_url
+
+logger = logging.getLogger("restaurant_agent_tools")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler('logs/restaurant_agent_service.log')
+file_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
 
 # 환경 변수 로드
 load_dotenv()
@@ -63,6 +76,7 @@ async def check_url_openable_async(url: str) -> bool:
     except Exception as e:
         logger.error(f"Error checking URL '{url}': {e}")
         return False
+
 
 # 1. Google Geocoding API를 사용하여 좌표를 조회하는 Tool
 class GeocodingTool(BaseTool):
@@ -170,7 +184,6 @@ class RestaurantBasicSearchTool(BaseTool):
                     f"키워드 '{simplified_keyword}' 첫 요청 결과 수: {len(results)} (필터 기준: 평점 {filter_rating} 이상, 리뷰 {filter_reviews}개 이상)"
                 )
 
-                # --- 기존 for 루프 대신 asyncio.gather로 병렬 처리 (수정한 부분) ---
                 tasks = []
                 for place in results:
                     place_id = place.get("place_id")
@@ -207,7 +220,6 @@ class RestaurantBasicSearchTool(BaseTool):
                                 f"키워드 '{simplified_keyword}' 추가 요청 결과 수: {len(new_results)}"
                             )
 
-                            # --- 여기서도 asyncio.gather로 병렬 처리 (수정한 부분) ---
                             tasks = []
                             for place in new_results:
                                 place_id = place.get("place_id")
@@ -356,34 +368,42 @@ class NaverWebSearchTool(BaseTool):
             "start": 1,
             "sort": "sim",
         }
-        try:
-            async with session.get(url, headers=headers, params=params) as response:
-                data = await response.json()
-                items = data.get("items", [])
-                if not items:
-                    return {"description": "정보를 찾을 수 없습니다.", "url": ""}
-                descriptions = []
-                for item in items:
-                    desc = item.get("description", "").strip()
-                    if desc and len(desc) > 30:
-                        descriptions.append(desc)
-                combined_description = " ".join(descriptions)
-                return {
-                    "description": (
-                        combined_description[:200]
-                        if len(combined_description) > 200
-                        else combined_description
-                    ),
-                    "url": items[0].get("link", "") if items else "",
-                }
-        except Exception as e:
-            logger.error(f"네이버 웹 검색 오류: {str(e)}")
-            return {"description": "정보 없음", "url": ""}
+
+        max_attempts = 2
+        for attempt in range(max_attempts):
+            try:
+                async with session.get(url, headers=headers, params=params) as response:
+                    data = await response.json()
+                    items = data.get("items", [])
+                    if items:
+                        descriptions = []
+                        for item in items:
+                            desc = item.get("description", "").strip()
+                            if desc and len(desc) > 30:
+                                descriptions.append(desc)
+                        combined_description = " ".join(descriptions)
+                        return {
+                            "description": (
+                                combined_description[:200]
+                                if len(combined_description) > 200
+                                else combined_description
+                            ),
+                            "url": items[0].get("link", "") if items else "",
+                        }
+                    else:
+                        logger.warning(
+                            f"[네이버 웹 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
+                        )
+            except Exception as e:
+                logger.error(
+                    f"네이버 웹 검색 오류 시도 {attempt+1}/{max_attempts}: {str(e)}"
+                )
+            await asyncio.sleep(1)  # 재시도 전 잠시 대기
+        return {"description": "정보를 찾을 수 없습니다.", "url": ""}
 
     async def _arun(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
         results = {}
         async with aiohttp.ClientSession() as session:
-            # 기존 for 루프 대신 asyncio.gather를 사용하여 병렬 처리
             tasks = [self.fetch(session, restaurant) for restaurant in restaurant_list]
             responses = await asyncio.gather(*tasks, return_exceptions=True)
             for restaurant, response in zip(restaurant_list, responses):
@@ -411,7 +431,7 @@ class NaverImageSearchTool(BaseTool):
         }
 
         query = clean_query(query)
-        logger.info(f"[네이버 이미지 검색어]: {query}")
+        logger.info(f"[🪔네이버 이미지 검색어]: {query}")
 
         params = {
             "query": query,
@@ -419,24 +439,43 @@ class NaverImageSearchTool(BaseTool):
             "sort": "sim",
             "filter": "all",
         }
-        try:
+
+        max_attempts = 2
+        for attempt in range(max_attempts):
+            logger.info(f"[🪔네이버 이미지 검색 {attempt+1}/{max_attempts}번째 시도]")
+            logger.info(f"[🪔네이버 이미지 검색 ]: {params}를 검색합니다.")
+            
+            # db_session = await get_async_session_manual()
+            # try:
+            #     # DB에서 조회
+            #     existing_image_url = await get_image_url(query, db_session)
+            #     if existing_image_url:
+            #         logger.info(f"[🪔네이버 이미지 검색]: {existing_image_url}가 이미 DB에서 존재합니다.")
+            #         return existing_image_url
+
+                # logger.info(f"[🪔네이버 이미지 검색]: 데이터베이스에 결과가 없습니다. 웹에서 검색합니다.")
             async with session.get(url, headers=headers, params=params) as response:
-                data = await response.json()
-                items = data.get("items", [])
-                if not items:
-                    return None
+                    data = await response.json()
+                
+                    items = data.get("items", [])
+                    if not items:
+                        logger.warning(f"[🪔네이버 이미지 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음")
+                        continue
 
-                # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
-                for item in items:
-                    img_url = item.get("link", "")
-                    if await check_url_openable_async(img_url):
-                        return img_url
-
-                # 만약 모두 접근 불가능하다면, 기본 이미지 URL 반환
-                return None
-        except Exception as e:
-            logger.error(f"네이버 이미지 검색 오류: {str(e)}")
-            return None
+                    # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택
+                    for item in items:
+                        img_url = item.get("link", "")
+                        if await check_url_openable_async(img_url):
+                            logger.info(f"[🪔네이버 이미지 검색]: {img_url}를 찾았습니다. DB에 저장합니다.")
+                            # await save_image_url(img_url, query, db_session)
+                            # await db_session.commit()
+                            return img_url
+            # except Exception as e:
+            logger.error(f"[🪔네이버 이미지 검색 오류] 시도 {attempt+1}/{max_attempts}: {str(e)}")
+                # await db_session.commit()
+            # finally:
+                # await db_session.close()
+            await asyncio.sleep(1)  # 재시도 전 잠시 대기
 
     async def _arun(
         self, restaurant_list: Union[List[str], List[Dict], Dict]
@@ -467,7 +506,6 @@ class NaverImageSearchTool(BaseTool):
 
         results = {}
         async with aiohttp.ClientSession() as session:
-            # 기존 for 루프 대신 asyncio.gather를 사용하여 병렬 처리
             tasks = [self.fetch(session, restaurant) for restaurant in restaurants]
             responses = await asyncio.gather(*tasks, return_exceptions=True)
             for restaurant, response in zip(restaurants, responses):
@@ -503,46 +541,53 @@ class KakaoLocalSearchTool(BaseTool):
             f"{location} {name.split()[0]}",  # "해운대 할매집"
         ]
 
+        max_attempts = 2
         for query in search_queries:
-            logger.info(f"[카카오 로컬 검색어 시도]: {query}")
-            params = {
-                "query": query,
-                "category_group_code": "FD6",
-                "size": 1,
-            }
-
-            try:
-                async with session.get(url, headers=headers, params=params) as response:
-                    data = await response.json()
-                    documents = data.get("documents", [])
-
-                    if documents:
-                        place = documents[0]
-                        place_id = place.get("id")
-
-                        result = {
-                            "kor_name": name,
-                            "address": place.get("road_address_name")
-                            or place.get("address_name", ""),
-                            "latitude": float(place.get("y", 0)) or None,
-                            "longitude": float(place.get("x", 0)) or None,
-                            "map_url": (
-                                f"https://map.kakao.com/link/map/{place_id}"
-                                if place_id
-                                else ""
-                            ),
-                            "phone_number": place.get("phone", ""),
-                            # "category_name": place.get("category_name", ""),
-                        }
-                        logger.info(
-                            f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
-                        )
-                        return result
-
-            except Exception as e:
-                logger.error(f"카카오 로컬 검색 오류: {str(e)}")
-                continue
-
+            for attempt in range(max_attempts):
+                logger.info(
+                    f"[카카오 로컬 검색어 시도]: {query} (시도 {attempt+1}/{max_attempts})"
+                )
+                params = {
+                    "query": query,
+                    "category_group_code": "FD6",
+                    "size": 1,
+                }
+                try:
+                    async with session.get(
+                        url, headers=headers, params=params
+                    ) as response:
+                        data = await response.json()
+                        documents = data.get("documents", [])
+                        if documents:
+                            place = documents[0]
+                            place_id = place.get("id")
+                            result = {
+                                "kor_name": name,
+                                "address": place.get("road_address_name")
+                                or place.get("address_name", ""),
+                                "latitude": float(place.get("y", 0)) or None,
+                                "longitude": float(place.get("x", 0)) or None,
+                                "map_url": (
+                                    f"https://map.kakao.com/link/map/{place_id}"
+                                    if place_id
+                                    else ""
+                                ),
+                                "phone_number": place.get("phone", ""),
+                                # "category_name": place.get("category_name", ""),
+                            }
+                            logger.info(
+                                f"[카카오 로컬 검색 성공] 검색어: {query}, 결과: {result}"
+                            )
+                            return result
+                        else:
+                            logger.warning(
+                                f"[카카오 로컬 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
+                            )
+                except Exception as e:
+                    logger.error(
+                        f"카카오 로컬 검색 오류 시도 {attempt+1}/{max_attempts}: {str(e)}"
+                    )
+                await asyncio.sleep(1)  # 재시도 전 잠시 대기
         logger.warning(
             f"[카카오 로컬 검색 실패] 모든 검색어 시도 실패: {search_queries}"
         )
@@ -564,7 +609,6 @@ class KakaoLocalSearchTool(BaseTool):
         """모든 식당 정보를 병렬로 처리"""
         results = []
         async with aiohttp.ClientSession() as session:
-            # 기존 for 루프 대신 asyncio.gather를 사용하여 병렬 처리
             tasks = [self.fetch(session, name, location) for name in restaurant_names]
             results = await asyncio.gather(*tasks, return_exceptions=True)
         return results

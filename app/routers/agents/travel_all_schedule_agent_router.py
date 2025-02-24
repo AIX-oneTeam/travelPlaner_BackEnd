@@ -79,19 +79,23 @@ async def generate_plan(
 
         if "restaurant" in agent_type:
             restaurant_service = RestaurantAgentService()
-            tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(input_data=input_dict, session=session, redis_client=redis_client)
-            logger.info(f"restaurant Agent 결과: {tasks['restaurant']}")
-            
+            tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(
+                input_data=input_dict, session=session, redis_client=redis_client
+            )
+
         if "site" in agent_type:
             site_agent_service = TouristAgentService()
-            tasks["site"] = site_agent_service.create_tourist_plan(input_dict)
-            logger.info(f"Site Agent 결과: {tasks['site']}")
-            
+            tasks["site"] = site_agent_service.create_tourist_plan(
+                input_dict,
+                redis_client=redis_client,
+                session=session,
+            )
+            logging.info(f"Site Agent 결과: {tasks['site']}")
         if "cafe" in agent_type:
             cafe_agent_service = CafeAgentService()
-            tasks["cafe"] = cafe_agent_service.create_recommendation_cafe(input_data=input_dict, session=session, redis_client=redis_client)
-            logger.info(f"cafe Agent 결과: {tasks['cafe']}")
-            
+            tasks["cafe"] = cafe_agent_service.create_recommendation_cafe(
+                input_data=input_dict, session=session, redis_client=redis_client
+            )
         if "accommodation" in agent_type:
             accommodation_agent_service = AccommodationAgentService()
             tasks["accommodation"] = accommodation_agent_service.create_recommendation_accommodation(input_dict)

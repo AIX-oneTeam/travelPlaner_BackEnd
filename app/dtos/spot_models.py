@@ -19,10 +19,7 @@ class spot_pydantic(BaseModel):
     
     order: int
     day_x: int
-    spot_time: Optional[str] = None
-
-
-
+    spot_time: Optional[str] = Field(default="")
 
 class spots_pydantic(BaseModel):
     spots: list[spot_pydantic]
