@@ -22,26 +22,49 @@ router = APIRouter()
 # 문의 등록 (사용자)
 @router.post("")
 async def create_inquiry_route(
-    request_data: Inquiry,
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ):
     try:
+        request_data = await request.json()
+        title = request_data.get("title")
+        content = request_data.get("content")
+
+        if not title or not content:
+            return ErrorResponse(
+                message="제목과 내용을 모두 입력해야 합니다.", status_code=400
+            )
+
         # 회원 ID 가져오기
-        if request.state.user:
+        if request.state.user is not None:
+            logger.info(f"request.state.user : {request.state.user}")
             member_email = request.state.user.get("email")
             provider = request.state.user.get("provider")
             member_id = await get_memberId_by_email(
                 email=member_email, session=session, provider=provider
             )
         else:
+            logger.info(
+                f"[ inquiry_router ] request_data.email: {request_data.get('email')}"
+            )
             member_id = await get_memberId_by_email(
-                email=request_data.email, session=session
+                email=request_data.get("email"), session=session
+            )
+            logger.info(f"[ inquiry_router ] member_id: {member_id}")
+
+        if member_id is None:
+            return ErrorResponse(
+                message="회원 정보를 찾을 수 없습니다.", status_code=404
             )
 
         # 문의 등록
         inquiry_id = await create_inquiry(
-            inquiry_data=request_data, member_id=member_id, session=session
+            inquiry_data={
+                "title": title,
+                "content": content,
+            },
+            member_id=member_id,
+            session=session,
         )
 
         return SuccessResponse(
@@ -73,8 +96,9 @@ async def read_inquiry(
 
 
 # 관리자: 전체 문의 조회
-@router.get("/all")
+@router.get("/admin/all")
 async def read_all_inquiries(
+    request: Request,
     session: AsyncSession = Depends(get_async_session),
 ):
     try:
@@ -97,7 +121,7 @@ async def read_all_inquiries(
 
 
 # 관리자: 문의에 답변 등록 + 사용자 이메일 발송
-@router.put("/answer/{inquiry_id}")
+@router.put("/admin/answer/{inquiry_id}")
 async def answer_inquiry_route(
     inquiry_id: int,
     answer_text: str,

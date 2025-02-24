@@ -6,7 +6,7 @@ from app.repository.inquiries.inquiry_repository import (
     get_all_inquiries,
     save_answer,
 )
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import smtplib
 from dotenv import load_dotenv
@@ -22,24 +22,29 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
 logger = logging.getLogger(__name__)
 
+
 # 문의 등록 (사용자가 문의 작성)
-async def create_inquiry(inquiry_data: Inquiry, member_id: int, session: AsyncSession):
+async def create_inquiry(inquiry_data: dict, member_id: int, session: AsyncSession):
     try:
+        # KST = UTC+9
+        kst = timezone(timedelta(hours=9))
+        current_time = datetime.now(kst)
+
         new_inquiry = Inquiry(
             member_id=member_id,
-            title=inquiry_data.title,
-            content=inquiry_data.content,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            title=inquiry_data["title"],
+            content=inquiry_data["content"],
+            status="pending",
+            created_at=current_time,
+            updated_at=current_time,
         )
         session.add(new_inquiry)
         await session.commit()
         await session.refresh(new_inquiry)
         return new_inquiry.inquiry_id
-
     except Exception as e:
         logger.error(f"문의 등록 실패: {e}")
-        return None
+        raise e
 
 
 # 문의 조회 (단일)

@@ -78,8 +78,6 @@ PUBLIC_PATHS = {
     "/oauths/kakao/callback",  # 카카오 OAuth
     "/oauths/naver/callback",  # 네이버 OAuth
     "/test/",  # 테스트 경로
-    "/inquiries/all",
-    "/inquiries/all/",
 }
 
 
