@@ -25,6 +25,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
+from app.services.agents.create_dummy_data import create_dummy_data
 
 load_dotenv()
 
@@ -71,54 +72,61 @@ async def generate_plan(
     redis_client: Redis = Depends(get_redis),
 ):
     try:
+        # dummies 자료 활용 테스트
+        DUMMY_DATA =create_dummy_data()
+        
         logger.info(f"프론트에서 받은 데이터: {user_input}")
         # Pydantic 모델을 Python dict로 변환
         input_dict = user_input.model_dump()
-
-        # 기본으로 실행할 에이전트 리스트 설정
-        agent_type = ["accommodation", "cafe", "restaurant", "site"]
-        input_dict["agent_type"] = agent_type
         input_dict["member_id"] = await get_member_id_by_request(request, session)
         input_dict["provider"] = request.state.user.get("provider")
         input_dict["email"] = request.state.user.get("email")
-        logger.info(f"input_dict: {input_dict}")
-
-
-        # 비동기 작업 딕셔너리 생성
-        tasks = {}
-
-        if "restaurant" in agent_type:
-            restaurant_service = RestaurantAgentService()
-            tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(input_data=input_dict, session=session, redis_client=redis_client)
-            logger.info(f"restaurant Agent 결과: {tasks['restaurant']}")
-            
-        if "site" in agent_type:
-            site_agent_service = TouristAgentService()
-            tasks["site"] = site_agent_service.create_tourist_plan(input_data=input_dict, session=session, redis_client=redis_client)
-            logger.info(f"Site Agent 결과: {tasks['site']}")
-            
-        if "cafe" in agent_type:
-            cafe_agent_service = CafeAgentService()
-            tasks["cafe"] = cafe_agent_service.create_recommendation_cafe(input_data=input_dict, session=session, redis_client=redis_client)
-            logger.info(f"cafe Agent 결과: {tasks['cafe']}")
-            
-
-        if "accommodation" in agent_type:
-            accommodation_agent_service = AccommodationAgentService()
-            tasks["accommodation"] = accommodation_agent_service.create_recommendation_accommodation(input_dict)
-            logger.info(f"accommodation Agent 결과: {tasks['accommodation']}")
-
-        # 비동기 작업 병렬 실행 및 결과 매핑
-        results = await asyncio.gather(*tasks.values())
+        input_dict["external_data"] = DUMMY_DATA
         
-        external_data = dict(zip(tasks.keys(), results))
-        logger.info(f"external_data 결과: {external_data}")
+        # # 기본으로 실행할 에이전트 리스트 설정
+        # agent_type = ["accommodation", "cafe", "restaurant", "site"]
+        # input_dict["agent_type"] = agent_type
+        # input_dict["member_id"] = await get_member_id_by_request(request, session)
+        # input_dict["provider"] = request.state.user.get("provider")
+        # input_dict["email"] = request.state.user.get("email")
+        # logger.info(f"input_dict: {input_dict}")
 
-        # 집계한 external_data를 입력 데이터에 추가
-        input_dict["external_data"] = external_data
-        logger.info(f"라우터받은 데이터----------------: {input_dict}")
 
-        # 최종 여행 일정 생성 함수 호출 (외부 데이터 포함)
+        # # 비동기 작업 딕셔너리 생성
+        # tasks = {}
+
+        # if "restaurant" in agent_type:
+        #     restaurant_service = RestaurantAgentService()
+        #     tasks["restaurant"] = restaurant_service.create_recommendation_restaurant(input_data=input_dict, session=session, redis_client=redis_client)
+        #     logger.info(f"restaurant Agent 결과: {tasks['restaurant']}")
+            
+        # if "site" in agent_type:
+        #     site_agent_service = TouristAgentService()
+        #     tasks["site"] = site_agent_service.create_tourist_plan(input_data=input_dict, session=session, redis_client=redis_client)
+        #     logger.info(f"Site Agent 결과: {tasks['site']}")
+            
+        # if "cafe" in agent_type:
+        #     cafe_agent_service = CafeAgentService()
+        #     tasks["cafe"] = cafe_agent_service.create_recommendation_cafe(input_data=input_dict, session=session, redis_client=redis_client)
+        #     logger.info(f"cafe Agent 결과: {tasks['cafe']}")
+            
+
+        # if "accommodation" in agent_type:
+        #     accommodation_agent_service = AccommodationAgentService()
+        #     tasks["accommodation"] = accommodation_agent_service.create_recommendation_accommodation(input_dict)
+        #     logger.info(f"accommodation Agent 결과: {tasks['accommodation']}")
+
+        # # 비동기 작업 병렬 실행 및 결과 매핑
+        # results = await asyncio.gather(*tasks.values())
+        
+        # external_data = dict(zip(tasks.keys(), results))
+        # logger.info(f"external_data 결과: {external_data}")
+
+        # # 집계한 external_data를 입력 데이터에 추가
+        # input_dict["external_data"] = external_data
+        # logger.info(f"라우터받은 데이터----------------: {input_dict}")
+
+        # # 최종 여행 일정 생성 함수 호출 (외부 데이터 포함)
         result = await travel_schedule_agent_service.create_plan(
             input_dict, session=session, redis_client=redis_client
         )
