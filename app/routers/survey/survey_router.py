@@ -12,12 +12,13 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
 # 설문 응답 등록 (사용자)
 @router.post("")
 async def create_survey_response_route(
     survey: SurveyResponse,
     request: Request,
-    session: AsyncSession = Depends(get_async_session)
+    session: AsyncSession = Depends(get_async_session),
 ):
     try:
         # 사용자 인증 정보에서 이메일 추출
@@ -40,7 +41,7 @@ async def create_survey_response_route(
 
         return SuccessResponse(
             data={"survey_id": survey.id},
-            message="설문 응답이 성공적으로 저장되었습니다."
+            message="설문 응답이 성공적으로 저장되었습니다.",
         )
     except Exception as e:
         traceback.print_exc()
@@ -51,17 +52,15 @@ async def create_survey_response_route(
 # 설문 응답 단일 조회 (관리자)
 @router.get("/{survey_id}")
 async def read_survey_response(
-    survey_id: int,
-    session: AsyncSession = Depends(get_async_session)
+    survey_id: int, session: AsyncSession = Depends(get_async_session)
 ):
     try:
         survey = await session.get(SurveyResponse, survey_id)
         if not survey:
-            raise HTTPException(status_code=404, detail="설문 응답이 존재하지 않습니다.")
-        return SuccessResponse(
-            data={"survey": survey},
-            message="설문 응답 조회 성공"
-        )
+            raise HTTPException(
+                status_code=404, detail="설문 응답이 존재하지 않습니다."
+            )
+        return SuccessResponse(data={"survey": survey}, message="설문 응답 조회 성공")
     except Exception as e:
         logger.error(f"설문 응답 조회 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -69,15 +68,12 @@ async def read_survey_response(
 
 # 전체 설문 응답 조회 (관리자)
 @router.get("/all")
-async def read_all_survey_responses(
-    session: AsyncSession = Depends(get_async_session)
-):
+async def read_all_survey_responses(session: AsyncSession = Depends(get_async_session)):
     try:
         surveys_result = await session.exec(select(SurveyResponse))
         surveys = surveys_result.all()
         return SuccessResponse(
-            data={"surveys": surveys},
-            message="전체 설문 응답 조회 성공"
+            data={"surveys": surveys}, message="전체 설문 응답 조회 성공"
         )
     except Exception as e:
         logger.error(f"전체 설문 응답 조회 실패: {str(e)}")

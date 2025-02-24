@@ -2,7 +2,7 @@ from datetime import datetime, time, timezone
 from sqlalchemy import Column, Double, DateTime
 from typing import List, Optional
 import phonenumbers
-from pydantic import field_validator
+from pydantic import field_validator, BaseModel
 from sqlmodel import Field, Relationship, SQLModel
 from sqlalchemy import text
 from pydantic import validator
@@ -269,10 +269,16 @@ class Inquiry(SQLModel, table=True):
 class SurveyResponse(SQLModel, table=True):
     __tablename__ = "survey_response"
     id: Optional[int] = Field(default=None, primary_key=True)
-    member_id: int = Field(foreign_key="member.id")  # foreign_key 추가
+    member_id: int = Field(foreign_key="member.id")
     plan_id: Optional[int] = Field(default=None)
     rating: int = Field(default=0)
     comment: str = Field(default="", max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     answered_at: Optional[datetime] = Field(default=None)
     member: "Member" = Relationship(back_populates="survey_responses")
+
+
+class SurveyResponseCreate(BaseModel):
+    rating: int
+    comment: str
+    plan_id: Optional[int] = None
