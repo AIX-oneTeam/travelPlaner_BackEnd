@@ -7,10 +7,9 @@ from app.services.inquiries.inquiry_service import (
     get_inquiry_service,
     get_all_inquiries_service,
     answer_inquiry,
-    send_email,
 )
 from app.repository.members.mebmer_repository import get_memberId_by_email
-from app.data_models.data_model import Inquiry
+from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,19 +17,19 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter()
 
+class InquiryCreate(BaseModel):
+    title: str
+    content: str
 
 # 문의 등록 (사용자)
 @router.post("")
 async def create_inquiry_route(
     request: Request,
+    inquiry: InquiryCreate = Body(...),
     session: AsyncSession = Depends(get_async_session),
 ):
     try:
-        request_data = await request.json()
-        title = request_data.get("title")
-        content = request_data.get("content")
-
-        if not title or not content:
+        if not inquiry.title or not inquiry.content:
             return ErrorResponse(
                 message="제목과 내용을 모두 입력해야 합니다.", status_code=400
             )
@@ -45,10 +44,10 @@ async def create_inquiry_route(
             )
         else:
             logger.info(
-                f"[ inquiry_router ] request_data.email: {request_data.get('email')}"
+                f"[ inquiry_router ] request_data.email: {request.state.user.get('email')}"
             )
             member_id = await get_memberId_by_email(
-                email=request_data.get("email"), session=session
+                email=request.state.user.get("email"), session=session
             )
             logger.info(f"[ inquiry_router ] member_id: {member_id}")
 
@@ -60,8 +59,8 @@ async def create_inquiry_route(
         # 문의 등록
         inquiry_id = await create_inquiry(
             inquiry_data={
-                "title": title,
-                "content": content,
+                "title": inquiry.title,
+                "content": inquiry.content,
             },
             member_id=member_id,
             session=session,
@@ -125,10 +124,10 @@ async def read_inquiry(
 # 관리자: 문의에 답변 등록 + 사용자 이메일 발송
 @router.put("/admin/answer/{inquiry_id}")
 async def answer_inquiry_route(
-    request: Request,  # non-default 파라미터를 앞으로
+    request: Request,
     inquiry_id: int,
     session: AsyncSession = Depends(get_async_session),
-    answer: str = Body(..., embed=True),  # default 파라미터를 뒤로
+    answer: str = Body(..., embed=True),
 ):
     try:
         if request.state.user:
