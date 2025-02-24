@@ -54,85 +54,41 @@ class TravelScheduleAgentService:
                 tools=[self.route_tool],
                 llm=self.llm,
                 verbose=True,
+                max_iter=1,
             )
         }
 
     def _create_tasks(self) -> List[Task]:
-        """최종 여행 일정 생성을 위한 Task 생성: 여행 기간 내 각 날짜마다 08:00, 12:00, 18:00의 고정 시간 슬롯을 순차적으로 적용"""
+        """최종 여행 일정 생성을 위한 Task 생성"""
         task_description = """
-        [최종 여행 일정 생성]
-
-        입력:
-        - 여행 기간: {start_date} ~ {end_date} (사용자가 선택한 여행 날짜 범위)
-        - 여행 지역: {main_location}
-        - 외부 데이터: {external_data}
-        - 사용 가능한 카테고리: restaurant, cafe, site, accommodation (제공된 카테고리만 사용)
-
+        목표:
+        - 각 장소들의 데이터의 위도, 경도를 참고하여 최적의 동선을 생성할 수 있는 장소들을 선택하고, 최적의 동선을 고려한 여행 일정을 반환해주세요.
+            
         규칙 및 조건:
-         ** tool 사용시 input은 "외부 데이터"의 카테고리별 spot정보들을 list[dict]형태로 묶어 사용하세요.**
-        1. 일정은 각 날짜별로 생성되며, 전체 여행 기간은 {start_date} ~ {end_date}까지이다.
-        2. 각 날짜별로 생성되는 시간 슬롯은 다음과 같다.
-        - **중요** 만일 {end_date}뺴기{start_date}의 값이 '2' 이상일 경우, 중간일 일정을 만든다.
-        예를 들어 {end_date}뺴기{start_date}=2(즉, 2박 3일의 경우): 시작일-중간일-마지막일
-        {end_date}뺴기{start_date}=2(즉, 3박 4일의 경우) : 시작인-중간일-중간일-마지막일
+        1. spot_category 정보
+        - accommodation:0, site:1, restaurant:2, cafe:3
+        2. tool 사용시 input은 "외부 데이터"로 제공 받은 길이가 {n_agent_results}인 list를 사용하세요.
+        3. tool의 output의 리스트 순서(리스트에 적힌 order, day_x, spot_time와 상관 없이, 리스트 반환된 장소 순서)를 참고하여 order, day_x, spot_time를 다시 설정해주세요.
+        4. accommodation은 반드시 1개만 선정하며, 매일 같은 숙소를 반환합니다. 숙소를 제외한 모든 장소는 반드시 중복 되지 않아야 합니다.  
+        - accommodation : 총 1개
+        - site : 총 {n_spots}개, day_x:{days} 제외 모두 같은 장소 반환
+        - restaurant : 총 {n_spots}개
+        - cafe : 총 {n_cafe}개
+        5. order, day_x, spot_time 설정 시 고려할 사항
+        - day_x는 {days}일의 여행 일정 중 몇일차인지 입니다.(만약, day_x:1 이라면 1일차에 방문한다는 의미)  
+        - day_x가 {days}일 경우, 반드시 식당 1곳만 반환하고, spot_time은 13:00, order는 1이여야 합니다.
+        - day_x가{days} 가 아니라면, day_x 별로 site 2곳, restaurant 2곳, cafe 1곳을 반환해주세요.
+        - 마지막 일자인 {days}일차에는 restaurant 1곳만 반환해주세요. (day_x:{days}, spot_time: 13:00, order:1)
+        - day_x별로 각 장소의 spot_time과 order는 다음과 같이 고정해주세요.
+            - spot_time: 13:00 - restaurant, order:1 
+            - spot_time: 14:30 - site, order:2
+            - spot_time: 16:00 - cafe, order:3
+            - spot_time: 17:30 - site, order:4
+            - spot_time: 19:00 - restaurant, order:5 
+            - spot_time: 20:30 - accommodation, order:6 ({days}일차 제외 모두 동일 숙소 반환)   
             
-        - 시작일 ({start_date}) 형식:
-        - 반드시 식당 - 관광지 - 카페 - 관광지 - 식당 - 숙소의 순서를 지키도록 한다. 
-        - 반드시 식당 2개 관광지 2개 카페 1개 숙소 1개의 데이터가 포함되도록 한다.
-            - spot_time: 13:00 고정 : 첫 번째 restaurant 데이터
-            - spot_time: 14:30 고정 : 첫 번째 site 데이터
-            - spot_time: 16:00 고정 : 첫 번째 cafe 데이터
-            - spot_time: 17:30 고정 : 두 번째 site 데이터
-            - spot_time: 19:00 고정 : 두 번째 restaurant 데이터
-            - spot_time: 20:30 고정 : accommodation 데이터 
-            (spot_time은 고정되어 있으며 절대 직접 변경 불가능)
-            
-        - 시작일 ({start_date}) 반복 형식 = 중간일 :
-        - 반드시 식당 - 관광지 - 카페 - 관광지 - 식당 - 숙소의 순서를 지키도록 한다. 
-        - 반드시 식당 2개 관광지 2개 카페 1개 숙소 1개의 데이터가 포함되도록 한다.
-            - spot_time: 13:00 고정 : 세 번째 restaurant 데이터
-            - spot_time: 14:30 고정 : 세 번째 site 데이터
-            - spot_time: 16:00 고정 : 두 번째 cafe 데이터
-            - spot_time: 17:30 고정 : 네 번째 site 데이터
-            - spot_time: 19:00 고정 : 네 번째 restaurant 데이터
-            - spot_time: 20:30 고정 : accommodation 데이터 (반드시 시작일 accommodation 데이터와 동일한 장소)
-            (spot_time은 고정되어 있으며 절대 직접 변경 불가능)
-            
-        - 마지막일({end_date}와 동일한 날) 형식:
-        - end_date와 동일한 마지막 날짜에는 반드시 하나의 식당 데이터만 가질 수 있도록 한다. 
-            - 오직 spot_time: 13:00 고정 : restaurant 데이터 (점심 식사 후 일정 종료)만 생성
-
-        3. 각 날짜의 일정이 모두 생성되면 기본day_x의 값은 1이다 day_x: 1 부터 시작, 다음 날짜(day_x 값은 1씩 증가)로 넘어간다.
-        4. restaurant, cafe, site ,accommodation의중에서 조건에 맞게 장소를 선택하며, **각 장소는 반드시 위도(latitude)와 경도(longitude) 정보를 포함해야 한다.**
-        5. accommodation의 경우 시작일 accommodation 데이터를 반드시 반복한다.
-        6. 필요한 카테고리가 없는 경우 해당 시간 슬롯은 생략한다.
-        7. **모든 장소에 대해 위도(latitude)와 경도(longitude) 정보가 반드시 포함되어야 하며, 만약 누락된 경우 해당 장소를 일정에서 제외한다.**
-        8. **최적의 이동 경로를 위해 제공된 위도/경도 정보를 기반으로 장소들을 재배치한다.**
-        9. **출력되는 최종 데이터 형식:**
-            - `kor_name`: 장소의 한글 이름 (필수)
-            - `eng_name`: 장소의 영어 이름 (필수)
-            - `latitude`: 위도 (필수)
-            - `longitude`: 경도 (필수)
-            - `spot_category`: 장소 카테고리 (필수)
-            - `spot_time`: 방문 시간 (필수)
-            - `address`: 장소의 주소 (선택)
-            - `description`: 장소 설명 (필수)
-            - `phone_number`: 연락처 (선택)
-        10. 각각의 장소는 중복된 장소를 추천하지 않는다.
-        11. 20:30분은 accommodation 숙소를 꼭 넣어야한다.
-        12. 일차가 변경되어도 중복된 장소는 사용하지 않는다
-
-        [PROCESS]
-        1. 여행 기간을 날짜별로 순회하며 각 날짜에 대해 일정 생성.
-        2. 만약 현재 날짜가 {end_date}와 동일하면, 오직 13:00 슬롯(restaurant)만 생성.
-        3. 그렇지 않으면 13:00, 14:30, 16:00, 17:30, 19:00, 20:30 슬롯을 순차적으로 생성.
-        4. 최종적으로 각 날짜별로 day_x, order, spot_time이 할당된 여행 일정을 생성한다.
-        5. ***day_x 는 1부터 시작 기본값이 day_x: 1
-        6. 외부 데이터 내부에  spot_category는 1번이 관광지 2번이 맛집 3번이 카페 4번이 숙소이다. **중요
-        7.   - 마지막일({end_date}와 동일한 날) 형식: **** 제일 중요
-            - end_date와 동일한 마지막 날짜에는 반드시 하나의 식당 데이터만 가질 수 있도록 한다. 
-            - 오직 spot_time: 13:00 고정 : restaurant 데이터 (점심 식사 후 일정 종료)만 생성
-        8. 기존 일정이 완료 되었을때 다음날 일정에 중복 데이터 포함 x -** 한번 사용했던 장소는 중복추천 x
+        "외부 데이터":{external_data}
+             
         """
         return [Task(
             description=task_description,

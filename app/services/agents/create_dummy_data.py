@@ -236,6 +236,8 @@ def create_dummy_data():
             'url': None,
             'image_url': 'http://imgnews.naver.net/image/032/2020/08/20/0003027691_001_20200820152808750.jpg',
             'map_url': 'https://map.example.com/haeundae',
+            'latitude': 35.1587,
+            'longitude': 129.1604,
             'spot_category': 1,
             'phone_number': None,
             'business_status': None,
@@ -251,6 +253,8 @@ def create_dummy_data():
             'url': None,
             'image_url': 'https://png.pngtree.com/thumb_back/fw800/background/20230322/pngtree-gwangalli-beach-in-busan-photo-image_2097801.jpg',
             'map_url': 'https://map.example.com/gwangalli',
+            'latitude': 35.1533,
+            'longitude': 129.1181,
             'spot_category': 1,
             'phone_number': None,
             'business_status': None,
@@ -266,7 +270,9 @@ def create_dummy_data():
             'url': None,
             'image_url': 'https://i1.ruliweb.com/img/17/07/09/15d2615b0c61431b.jpg',
             'map_url': 'https://map.example.com/busan_tower',
-            'spot_category': 2,
+            'latitude': 35.0976,
+            'longitude': 129.0335,
+            'spot_category': 1,
             'phone_number': None,
             'business_status': None,
             'business_hours':None,
@@ -280,7 +286,9 @@ def create_dummy_data():
             'address': '부산광역시 사하구 감천로 203',
             'url': None, 'image_url': 'https://i.pinimg.com/736x/a2/44/fe/a244fed57bf0408c6149ac9519b86203.jpg',
             'map_url': 'https://map.example.com/gamcheon',
-            'spot_category': 3,
+            'latitude': 35.0973,
+            'longitude': 129.0101,
+            'spot_category': 1,
             'phone_number': None,
             'business_status': None,
             'business_hours': None,
@@ -295,7 +303,9 @@ def create_dummy_data():
             'url': None,
             'image_url': 'http://imgnews.naver.net/image/001/2011/09/08/PYH2011081606020005100_P2.jpg',
             'map_url': 'https://map.example.com/biff',
-            'spot_category': 4,
+            'latitude': 35.1692,
+            'longitude': 129.1295,
+            'spot_category': 1,
             'phone_number':None, 
             'business_status': None, 
             'business_hours': None, 
@@ -310,7 +320,9 @@ def create_dummy_data():
             'url': None,
             'image_url': 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Dongbaek_Island_20200522_016.jpg',
             'map_url': 'https://map.example.com/dongbaek',
-            'spot_category': 5,
+            'latitude': 35.1530,
+            'longitude': 129.1534,
+            'spot_category': 1,
             'phone_number': None,
             'business_status': None,
             'business_hours': None,
@@ -523,3 +535,42 @@ def create_dummy_data():
         }
     ]
 }
+
+result = create_dummy_data()
+
+# kor_name이 포함된 spots 정보 추출
+def extract_kor_name_spots(data):
+    all_spots = []
+
+    # restaurant 섹션
+    if 'restaurant' in data:
+        for spot in data['restaurant'].get('spots', []):
+            if 'kor_name' in spot:
+                all_spots.append(spot)
+    
+    # site 섹션
+    if 'site' in data:
+        for spot in data['site']:
+            if 'kor_name' in spot:
+                all_spots.append(spot)
+    
+    # cafe 섹션
+    if 'cafe' in data:
+        for spot in data['cafe'].get('spots', []):
+            if 'kor_name' in spot:
+                all_spots.append(spot)
+    
+    # accommodation 섹션
+    if 'accommodation' in data:
+        for spot in data['accommodation']:
+            if 'kor_name' in spot:
+                all_spots.append(spot)
+    
+    return all_spots
+
+# 추출된 spots 정보
+kor_name_spots = extract_kor_name_spots(result)
+
+
+print(f"총 spot 개수 : {len(kor_name_spots)}")
+    

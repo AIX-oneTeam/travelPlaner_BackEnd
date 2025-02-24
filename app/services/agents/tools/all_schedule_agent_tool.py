@@ -3,6 +3,12 @@ from typing import List, Dict
 from geopy.distance import geodesic
 from crewai.tools import BaseTool
 
+# from app.services.agents.create_dummy_list import create_dummy_list
+# from create_dummy_list import create_dummy_list
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 class HaversineRouteOptimizer(BaseTool):
     """하버사인 공식을 활용하여 최적 방문 경로를 계산하는 도구"""
 
@@ -14,6 +20,7 @@ class HaversineRouteOptimizer(BaseTool):
         if len(spots) < 2:
             return {"error": "최소 두 개 이상의 장소가 필요합니다."}
 
+        logger.info(f"--------------총 {len(spots)}개의 장소 계산을 시작합니다.---------")
         # 모든 장소의 위도(latitude)와 경도(longitude) 리스트 추출
         locations = [(spot["latitude"], spot["longitude"]) for spot in spots]
 
@@ -25,6 +32,8 @@ class HaversineRouteOptimizer(BaseTool):
 
         # 최적 순서대로 spots 정렬
         optimized_spots = [spots[i] for i in optimal_order]
+
+        logger.info(f"--------------총 {len(optimized_spots)}개의 장소 계산 결과를 반환합니다.---------")
 
         return optimized_spots
 
@@ -64,3 +73,9 @@ class HaversineRouteOptimizer(BaseTool):
                 visited[nearest] = True
 
         return route
+    
+# spots_list = create_dummy_list()
+# distance_tool = HaversineRouteOptimizer()
+# print(f"총 n개 장소 input으로 사용 {len(spots_list)}")
+# result = distance_tool._run(spots_list)
+# print(f"총 n개 장소 output으로 반환 {len(result)}")
