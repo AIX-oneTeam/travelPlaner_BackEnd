@@ -9,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from typing import AsyncGenerator
 from .redis_client import init_redis, close_redis
+from app.data_models.data_model import SurveyResponse
 # 환경 변수 로드
 
 logger = logging.getLogger(__name__)

@@ -18,7 +18,7 @@ logger.setLevel(logging.INFO)
 file_handler = logging.FileHandler('logs/restaurant_agent_service.log', encoding="utf-8")
 file_handler.setLevel(logging.INFO)
 
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)
 
 logger.addHandler(file_handler)
@@ -413,7 +413,6 @@ class NaverWebSearchTool(BaseTool):
     def _run(self, restaurant_list: List[str]) -> Dict[str, Dict[str, str]]:
         return asyncio.run(self._arun(restaurant_list))
 
-
 # 4. 네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 조회하는 Tool
 class NaverImageSearchTool(BaseTool):
     name: str = "NaverImageSearch"
@@ -431,7 +430,7 @@ class NaverImageSearchTool(BaseTool):
         }
 
         query = clean_query(query)
-        logger.info(f"[🪔네이버 이미지 검색어]: {query}")
+        logger.info(f"[네이버 이미지 검색어]: {query}")
 
         params = {
             "query": query,
@@ -442,40 +441,27 @@ class NaverImageSearchTool(BaseTool):
 
         max_attempts = 2
         for attempt in range(max_attempts):
-            logger.info(f"[🪔네이버 이미지 검색 {attempt+1}/{max_attempts}번째 시도]")
-            logger.info(f"[🪔네이버 이미지 검색 ]: {params}를 검색합니다.")
-            
-            # db_session = await get_async_session_manual()
-            # try:
-            #     # DB에서 조회
-            #     existing_image_url = await get_image_url(query, db_session)
-            #     if existing_image_url:
-            #         logger.info(f"[🪔네이버 이미지 검색]: {existing_image_url}가 이미 DB에서 존재합니다.")
-            #         return existing_image_url
-
-                # logger.info(f"[🪔네이버 이미지 검색]: 데이터베이스에 결과가 없습니다. 웹에서 검색합니다.")
-            async with session.get(url, headers=headers, params=params) as response:
+            try:
+                async with session.get(url, headers=headers, params=params) as response:
                     data = await response.json()
-                
                     items = data.get("items", [])
                     if not items:
-                        logger.warning(f"[🪔네이버 이미지 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음")
-                        continue
-
-                    # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택
-                    for item in items:
-                        img_url = item.get("link", "")
-                        if await check_url_openable_async(img_url):
-                            logger.info(f"[🪔네이버 이미지 검색]: {img_url}를 찾았습니다. DB에 저장합니다.")
-                            # await save_image_url(img_url, query, db_session)
-                            # await db_session.commit()
-                            return img_url
-            # except Exception as e:
-            logger.error(f"[🪔네이버 이미지 검색 오류] 시도 {attempt+1}/{max_attempts}: {str(e)}")
-                # await db_session.commit()
-            # finally:
-                # await db_session.close()
+                        logger.warning(
+                            f"[네이버 이미지 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
+                        )
+                    else:
+                        # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택 (check_url_openable_async 사용)
+                        for item in items:
+                            img_url = item.get("link", "")
+                            if await check_url_openable_async(img_url):
+                                return img_url
+            except Exception as e:
+                logger.error(
+                    f"네이버 이미지 검색 오류 시도 {attempt+1}/{max_attempts}: {str(e)}"
+                )
             await asyncio.sleep(1)  # 재시도 전 잠시 대기
+        # 모든 시도 실패 시 None 반환
+        return None
 
     async def _arun(
         self, restaurant_list: Union[List[str], List[Dict], Dict]
@@ -514,6 +500,113 @@ class NaverImageSearchTool(BaseTool):
 
     def _run(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
         return asyncio.run(self._arun(restaurant_list))
+
+
+# class NaverImageSearchTool(BaseTool):
+#     name: str = "NaverImageSearch"
+#     description: str = (
+#         "네이버 이미지 검색 API를 사용해 식당의 대표 이미지를 검색합니다."
+#     )
+
+#     async def fetch(self, session: aiohttp.ClientSession, query: str):
+#         url = "https://openapi.naver.com/v1/search/image"
+#         headers = {
+#             "X-Naver-Client-Id": AGENT_NAVER_CLIENT_ID,
+#             "X-Naver-Client-Secret": AGENT_NAVER_CLIENT_SECRET,
+#             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+#             "Referer": "https://search.naver.com/",
+#         }
+
+#         query = clean_query(query)
+#         logger.info(f"[🪔네이버 이미지 검색어]: {query}")
+
+#         params = {
+#             "query": query,
+#             "display": 5,
+#             "sort": "sim",
+#             "filter": "all",
+#         }
+
+#         max_attempts = 2
+#         for attempt in range(max_attempts):
+#             logger.info(f"[🪔네이버 이미지 검색 {attempt+1}/{max_attempts}번째 시도]")
+#             logger.info(f"[🪔네이버 이미지 검색 ]: {params}를 검색합니다.")
+
+#             # db_session = await get_async_session_manual()
+#             # try:
+#             #     # DB에서 조회
+#             #     existing_image_url = await get_image_url(query, db_session)
+#             #     if existing_image_url:
+#             #         logger.info(f"[🪔네이버 이미지 검색]: {existing_image_url}가 이미 DB에서 존재합니다.")
+#             #         return existing_image_url
+
+#             # logger.info(f"[🪔네이버 이미지 검색]: 데이터베이스에 결과가 없습니다. 웹에서 검색합니다.")
+#             async with session.get(url, headers=headers, params=params) as response:
+#                 data = await response.json()
+
+#                 items = data.get("items", [])
+#                 if not items:
+#                     logger.warning(
+#                         f"[🪔네이버 이미지 검색] 시도 {attempt+1}/{max_attempts}: 결과 없음"
+#                     )
+#                     continue
+
+#                 # 받아온 여러 이미지 URL 중 실제 접근 가능한 URL을 선택
+#                 for item in items:
+#                     img_url = item.get("link", "")
+#                     if await check_url_openable_async(img_url):
+#                         logger.info(
+#                             f"[🪔네이버 이미지 검색]: {img_url}를 찾았습니다. DB에 저장합니다."
+#                         )
+#                         # await save_image_url(img_url, query, db_session)
+#                         # await db_session.commit()
+#                         return img_url
+#             # except Exception as e:
+#             logger.error(
+#                 f"[🪔네이버 이미지 검색 오류] 시도 {attempt+1}/{max_attempts}: {str(e)}"
+#             )
+#             # await db_session.commit()
+#             # finally:
+#             # await db_session.close()
+#             await asyncio.sleep(1)  # 재시도 전 잠시 대기
+
+#     async def _arun(
+#         self, restaurant_list: Union[List[str], List[Dict], Dict]
+#     ) -> Dict[str, str]:
+#         # 딕셔너리 리스트인 경우 처리
+#         if (
+#             isinstance(restaurant_list, list)
+#             and restaurant_list
+#             and isinstance(restaurant_list[0], dict)
+#         ):
+#             restaurants = [
+#                 r.get("kor_name", "") for r in restaurant_list if r.get("kor_name")
+#             ]
+#         # 기존 로직 유지
+#         elif isinstance(restaurant_list, dict):
+#             if "type" in restaurant_list:
+#                 restaurants = restaurant_list["type"]
+#             else:
+#                 restaurants = []
+#         else:
+#             restaurants = (
+#                 restaurant_list
+#                 if isinstance(restaurant_list, list)
+#                 else [restaurant_list]
+#             )
+
+#         restaurants = [str(r) for r in restaurants if r is not None]
+
+#         results = {}
+#         async with aiohttp.ClientSession() as session:
+#             tasks = [self.fetch(session, restaurant) for restaurant in restaurants]
+#             responses = await asyncio.gather(*tasks, return_exceptions=True)
+#             for restaurant, response in zip(restaurants, responses):
+#                 results[restaurant] = response
+#         return results
+
+#     def _run(self, restaurant_list: Union[List[str], Dict]) -> Dict[str, str]:
+#         return asyncio.run(self._arun(restaurant_list))
 
 
 # 5. 카카오 로컬 API를 사용해 식당의 상세 정보를 조회하는 Tool
