@@ -25,6 +25,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
+from app.services.agents.create_dummy_data import create_dummy_data
 
 load_dotenv()
 
@@ -71,10 +72,22 @@ async def generate_plan(
     redis_client: Redis = Depends(get_redis),
 ):
     try:
+        # <-------dummies 테스트 시에만 활성화, 서비스 코드는 주석처리 필요--->
+        # DUMMY_DATA =create_dummy_data()
+        
+        # # logger.info(f"프론트에서 받은 데이터: {user_input}")
+        # # Pydantic 모델을 Python dict로 변환
+        # input_dict = user_input.model_dump()
+        # input_dict["member_id"] = await get_member_id_by_request(request, session)
+        # input_dict["provider"] = request.state.user.get("provider")
+        # input_dict["email"] = request.state.user.get("email")
+        # input_dict["external_data"] = DUMMY_DATA
+        
+        # <--------서비스 코드(더미 테스트시 주석 처리)---->
         logger.info(f"프론트에서 받은 데이터: {user_input}")
         # Pydantic 모델을 Python dict로 변환
-        input_dict = user_input.model_dump()
-
+        input_dict = user_input.model_dump()      
+        
         # 기본으로 실행할 에이전트 리스트 설정
         agent_type = ["accommodation", "cafe", "restaurant", "site"]
         input_dict["agent_type"] = agent_type
@@ -118,7 +131,9 @@ async def generate_plan(
         input_dict["external_data"] = external_data
         logger.info(f"라우터받은 데이터----------------: {input_dict}")
 
-        # 최종 여행 일정 생성 함수 호출 (외부 데이터 포함)
+        # <--------서비스 코드 (더미 테스트 유무 상관 없이 항상 실행)---------------------->
+
+        # # 최종 여행 일정 생성 함수 호출 (외부 데이터 포함)
         result = await travel_schedule_agent_service.create_plan(
             input_dict, session=session, redis_client=redis_client
         )
