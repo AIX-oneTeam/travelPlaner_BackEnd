@@ -22,12 +22,12 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
 logger = logging.getLogger(__name__)
 
+# KST = UTC+9
+kst = timezone(timedelta(hours=9))
 
 # 문의 등록 (사용자가 문의 작성)
 async def create_inquiry(inquiry_data: dict, member_id: int, session: AsyncSession):
     try:
-        # KST = UTC+9
-        kst = timezone(timedelta(hours=9))
         current_time = datetime.now(kst)
 
         new_inquiry = Inquiry(
@@ -58,7 +58,7 @@ async def get_all_inquiries_service(session: AsyncSession):
 
 
 # 관리자: 문의 답변 등록 및 이메일 발송
-async def answer_inquiry(inquiry_id: int, answer_text: str, session: AsyncSession):
+async def answer_inquiry(inquiry_id: int, answer: str, session: AsyncSession):
     # 1. 기존 get_inquiry를 사용해 문의 존재 여부 확인
     inquiry_dict = await get_inquiry(inquiry_id, session)
     if not inquiry_dict:
@@ -70,13 +70,13 @@ async def answer_inquiry(inquiry_id: int, answer_text: str, session: AsyncSessio
         return None
 
     # 3. 답변 저장
-    updated_inquiry_dict = await save_answer(inquiry_obj, answer_text, session)
+    updated_inquiry_dict = await save_answer(inquiry_obj, answer, session)
 
     # 4. 문의 작성자의 회원 정보 조회 (Member 객체에서 직접 이메일 조회)
     member_id = updated_inquiry_dict["member_id"]
     member_obj = await session.get(
         Member, member_id
-    )  # Member 모델이 임포트되어 있어야 함
+    )
     member_email = member_obj.email if member_obj else None
 
     # 5. 사용자에게 이메일 알림 발송
@@ -95,7 +95,7 @@ EASY TRAVEL 입니다.
 문의 내용 : {updated_inquiry_dict["content"]}
 
 ✅ 답변 :
-{answer_text}
+{answer}
 
 추가 문의 사항이나 도움이 필요하시면 언제든지 EASY TRAVEL 고객센터로 연락 주시기 바랍니다.
 
