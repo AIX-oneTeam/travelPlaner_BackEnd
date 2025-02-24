@@ -261,7 +261,11 @@ class Inquiry(SQLModel, table=True):
     updated_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False)
     )
-    answered_at: Optional[datetime] = Field(default=None)
+    answered_at: Optional[datetime] = Field(
+        sa_column=Column(
+            DateTime(timezone=True), nullable=True
+        )
+    )
 
     member: "Member" = Relationship(back_populates="inquiries")
 
