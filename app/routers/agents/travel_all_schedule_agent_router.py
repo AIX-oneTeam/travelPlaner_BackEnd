@@ -26,6 +26,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from dotenv import load_dotenv
 from app.utils.time_check import time_check
 from app.services.agents.create_dummy_data import create_dummy_data
+from app.utils.extract_spots import extract_spots
 
 load_dotenv()
 
@@ -74,14 +75,14 @@ async def generate_plan(
     try:
         # <-------dummies 테스트 시에만 활성화, 서비스 코드는 주석처리 필요--->
         # DUMMY_DATA =create_dummy_data()
-        
+        # spots_list = extract_spots(DUMMY_DATA)
         # # logger.info(f"프론트에서 받은 데이터: {user_input}")
         # # Pydantic 모델을 Python dict로 변환
         # input_dict = user_input.model_dump()
         # input_dict["member_id"] = await get_member_id_by_request(request, session)
         # input_dict["provider"] = request.state.user.get("provider")
         # input_dict["email"] = request.state.user.get("email")
-        # input_dict["external_data"] = DUMMY_DATA
+        # input_dict["external_data"] = spots_list
         
         # <--------서비스 코드(더미 테스트시 주석 처리)---->
         logger.info(f"프론트에서 받은 데이터: {user_input}")

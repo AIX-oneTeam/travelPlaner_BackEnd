@@ -18,8 +18,21 @@ from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.services.agents.redis.caching_spots import SpotCachingService
 from app.services.agents.redis.spot_redis import SpotRedisService, SpotCategory
 from app.dtos.cafe_models import CafeList
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+file_handler = logging.FileHandler('logs/cafe_agent.log', encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# 에러 전용 로그 파일 생성
+file_handler_error = logging.FileHandler('logs/cafe_agent_error.log', encoding="utf-8")
+file_handler_error.setLevel(logging.ERROR)
+formatter_error = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler_error.setFormatter(formatter_error)
+logger.addHandler(file_handler_error)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -118,12 +131,11 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영해 keywords라는 이름의 리스트를 생성하고 키워드를 추가하세요.
-                - 키워드 리스트의 길이는 최소 1개에서 최대 2개입니다.
-                - "해산물"처럼 카페와 상관 없는 키워드는 생성하지 마세요.
+                2. tool 사용시 input은 "{main_location}"과 생성한 리스트 타입의 "keywords" 2개만 순서대로 입력해 사용하세요.
                 - 각 키워드는 형용사 또는 명사인 하나의 단어여야 하고, 비슷한 의미를 가진 단어는 1개만 사용하세요.
                 - 1개로 충분하다면 불필요하게 2개 까지 생성하지 마세요.
                 - 키워드로 "카페" 또는 "지역명" 또는 "추천"은 사용하지 마세요.
-                2. tool 사용시 "{main_location}"과 리스트 타입의 "keywords"를 순서대로 input값으로 사용하세요.
+                3. 반드시 tool output의 길이와 동일한 개수의 카페를 반환하세요
                 """,
                 expected_output="""
                 n_posting이 큰 순으로 내림차순 해주세요.
@@ -253,6 +265,10 @@ class CafeAgentService:
 
                     draft_result = await self.draft_crew.kickoff_async(inputs=input_data)
                     spots_dict = draft_result.pydantic.model_dump()
+                    
+                    logger.info(f"----------draft_result.token_usage: {draft_result.token_usage}")      
+                    logger.info(f"----------draft_result.token_usage.__dict__: {draft_result.token_usage.__dict__}")      
+                    
                     cafes_to_save = [spot["kor_name"] for spot in spots_dict.get("spots", [])]
                     logger.info(f"spots to save: {cafes_to_save}")
 
@@ -268,6 +284,9 @@ class CafeAgentService:
                     traceback.print_exc()
 
             # 7. 캐싱된 정보가 부족할 경우 캐싱 데이터를 비움
+            logger.info("4단계의 cafe_crew를 실행합니다")
+            logger.info("----------------------------------------------------")
+
             input_data["cached_cafe_lists"] = ""
 
             # 8. 신규 일정인지 기존 일정인지에 따라 기존 장소 데이터 조회
@@ -312,7 +331,9 @@ class CafeAgentService:
             # 9. 메인 에이전트를 실행하여 카페 추천 결과 도출
             result = await self.crew.kickoff_async(inputs=input_data)
             spots = result.pydantic.model_dump()
-
+            logger.info(f"----------result.token_usage: {result.token_usage}")      
+            logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+     
             # 10. 새로 찾은 카페들을 Redis 캐싱(하루 뒤 만료)
             spots_dummies = self.tasks['reviewer_task'].output.pydantic.model_dump()
             await caching_service.add_spots(

@@ -1,0 +1,24 @@
+{
+    "timestamp": "2025-02-25 11:56:44",
+    "counts": {
+        "NaverBlogSearchTool": 50,
+        "NaverReviewCralwerTool": 0,
+        "NaverBusinessInfoTool": 0
+    }
+},
+{
+    "timestamp": "2025-02-25 11:57:03",
+    "counts": {
+        "NaverBlogSearchTool": 50,
+        "NaverReviewCralwerTool": 0,
+        "NaverBusinessInfoTool": 10
+    }
+},
+{
+    "timestamp": "2025-02-25 11:57:26",
+    "counts": {
+        "NaverBlogSearchTool": 50,
+        "NaverReviewCralwerTool": 10,
+        "NaverBusinessInfoTool": 10
+    }
+},
