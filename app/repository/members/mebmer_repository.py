@@ -52,3 +52,13 @@ async def get_member_by_email_and_provider(email: str, provider: str, session: A
         return member
     except Exception as e:
         logger.error(f"[ memberRepository ] get_member_by_email_and_provider() 에러 : {e}")
+
+
+async def get_member_signup_count(session: AsyncSession):
+    """
+    모든 회원의 가입 날짜(created_at)를 조회합니다.
+    """
+    query = select(Member.created_at)
+    results = await session.exec(query)
+    created_dates = results.all()
+    return created_dates
