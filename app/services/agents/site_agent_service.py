@@ -37,7 +37,11 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
+file_handler = logging.FileHandler('logs/site_agent.log', encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 def parse_first_json(s: str):
     decoder = json.JSONDecoder()
@@ -470,6 +474,8 @@ class TouristAgentService:
                         verbose=True,
                     )
                     result = await crew.kickoff_async(inputs=input_data)
+                    logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+
                     logger.info(
                         "[TouristAgent] Crew execution completed with result: %s",
                         result,
@@ -501,6 +507,8 @@ class TouristAgentService:
                         verbose=True,
                     )
                     result = await draft_crew.kickoff_async(inputs=input_data)
+                    logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+
                     if (
                         result is None
                         or not hasattr(result, "tasks_output")
@@ -625,6 +633,8 @@ class TouristAgentService:
                     verbose=True,
                 )
                 result = await crew.kickoff_async(inputs=input_data)
+                logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+                
                 if (
                     result is None
                     or not hasattr(result, "tasks_output")

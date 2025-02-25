@@ -266,7 +266,7 @@ class CafeAgentService:
                     draft_result = await self.draft_crew.kickoff_async(inputs=input_data)
                     spots_dict = draft_result.pydantic.model_dump()
                     
-                    logger.info(f"----------draft_result.token_usage: {draft_result.token_usage}")      
+                    # logger.info(f"----------draft_result.token_usage: {draft_result.token_usage}")      
                     logger.info(f"----------draft_result.token_usage.__dict__: {draft_result.token_usage.__dict__}")      
                     
                     cafes_to_save = [spot["kor_name"] for spot in spots_dict.get("spots", [])]
@@ -331,7 +331,7 @@ class CafeAgentService:
             # 9. 메인 에이전트를 실행하여 카페 추천 결과 도출
             result = await self.crew.kickoff_async(inputs=input_data)
             spots = result.pydantic.model_dump()
-            logger.info(f"----------result.token_usage: {result.token_usage}")      
+            # logger.info(f"----------result.token_usage: {result.token_usage}")      
             logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
      
             # 10. 새로 찾은 카페들을 Redis 캐싱(하루 뒤 만료)
@@ -361,4 +361,4 @@ class CafeAgentService:
             return spots
 
         except Exception as e:
-            logger.info(f"[CafeAgent] 에러 - {e}")
+            logger.error(f"[cafe agent error] --- cafe agent error {str(e)}")

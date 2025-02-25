@@ -441,6 +441,8 @@ class RestaurantAgentService:
 
             # 4. 결과 실행 및 처리
             result = await crew.kickoff_async(inputs=processed_input)
+            logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+
             processed_result = self._process_result(result, processed_input)
             print(f"⭐️ processed_result: {processed_result}")
 
