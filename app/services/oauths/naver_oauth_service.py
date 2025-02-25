@@ -89,7 +89,7 @@ async def handle_callback(code: str, state: str) -> dict:
             "nickname": user_profile.get("response", {}).get("name"),
             "email": user_profile.get("response", {}).get("email"),
             "profile_url": user_profile.get("response", {}).get("profile_image"),
-            "roles": ["USER"],
+            "roles": user_profile.get("response", {}).get("roles"),
             "access_token": access_token,
             "refresh_token": refresh_token
         }
