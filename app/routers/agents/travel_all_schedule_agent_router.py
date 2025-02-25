@@ -24,7 +24,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 from app.services.agents.create_dummy_data import create_dummy_data
 
 load_dotenv()
@@ -74,7 +74,6 @@ async def generate_plan(
     try:
         # <-------dummies 테스트 시에만 활성화, 서비스 코드는 주석처리 필요--->
         # DUMMY_DATA =create_dummy_data()
-        
         # # logger.info(f"프론트에서 받은 데이터: {user_input}")
         # # Pydantic 모델을 Python dict로 변환
         # input_dict = user_input.model_dump()
