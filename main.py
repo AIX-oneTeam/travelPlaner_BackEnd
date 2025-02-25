@@ -65,6 +65,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://easytravel.jomalang.com",
+        "http://admin-easytravel.jomalang.com",
+        "http://localhost:3001",
         "http://localhost:3000",
         "http://localhost:3000/checkList"
     ],  # 모든 출처 허용

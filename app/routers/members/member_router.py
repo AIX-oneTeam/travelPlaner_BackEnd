@@ -6,6 +6,7 @@ from app.repository.db import get_async_session
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.repository.fcmToken.fcm_token_respository import save_fcm_token
 from app.repository.members.mebmer_repository import get_memberId_by_email
+from app.services.members.member_service import get_member_signup_count_service
 
 import logging
 logger = logging.getLogger(__name__)
@@ -62,3 +63,15 @@ async def reg_fcm_token(request: Request, fcm_token_request: FcmTokenRequest, se
         
 
 
+# 일단 빠르게 구현 하려고 이렇게 하였지만 나중에는 Admin 따로 만들어서 거기 안에 전부 관리해야할듯하네유..
+@router.get("/admin/all")
+async def member_signup_count(session: AsyncSession = Depends(get_async_session)):
+    "관리자가 멤버 가입 날짜별 조회하는 라우트"
+
+    try:
+        signup_counts = await get_member_signup_count_service(session)
+        return SuccessResponse(message="회원 가입자 수 조회 성공", data=signup_counts)
+    
+    except Exception as e:
+        logger.error(f"회원 가입자 수 조회 실패: {e}")
+        raise ErrorResponse(status_code=500, detail=str(e))
