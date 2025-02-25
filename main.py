@@ -32,7 +32,7 @@ from app.routers.agents.agent_metrics_router import router as agent_metrics_rout
 import os
 from dotenv import load_dotenv
 import logging
-import agentops
+# import agentops
 load_dotenv()
 
 # 로그 설정
@@ -53,9 +53,9 @@ logging.getLogger("sqlalchemy.orm").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 logger.info("💡로그 설정 완료")
 
-AGENTOPS_API_KEY = os.getenv("AGENTOPS_API_KEY")
-agentops.init(AGENTOPS_API_KEY)
-logger.info("--------------agentops api key가 존재합니다") if AGENTOPS_API_KEY else logger.info("agentops api키가 없습니다")
+# AGENTOPS_API_KEY = os.getenv("AGENTOPS_API_KEY")
+# agentops.init(AGENTOPS_API_KEY)
+# logger.info("--------------agentops api key가 존재합니다") if AGENTOPS_API_KEY else logger.info("agentops api키가 없습니다")
 
 # FastAPI 애플리케이션 생성
 app = FastAPI(lifespan=lifespan)

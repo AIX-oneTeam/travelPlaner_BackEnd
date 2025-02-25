@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Response
 from app.data_models.data_model import Member
 from app.repository.db import get_async_session
-from app.repository.members.mebmer_repository import is_exist_member_by_email, save_member
+from app.repository.members.mebmer_repository import get_member_by_email_and_provider, is_exist_member_by_email, save_member
 from app.services.oauths.kakao_oauth_service import handle_kakao_callback
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -66,13 +66,14 @@ async def kakao_callback(code: str, state: str, response: Response, session: Asy
         try:
             logger.info("[Kakao Callback] 회원 정보 데이터 베이스 시작")
 
-            if not await is_exist_member_by_email(user_data["email"], "kakao", session):
+            member = await get_member_by_email_and_provider(user_data["email"], "google", session)
+            if not member:
                 await save_member(Member(
                     email=user_data["email"],
                     name=user_data["nickname"],
                     nickname=user_data["nickname"],
                     picture_url=user_data["profile_url"],
-                    roles=user_data["roles"],
+                    roles="USER",
                     access_token=user_data["access_token"],
                     refresh_token=user_data["refresh_token"],
                     oauth="kakao"), session)
@@ -82,7 +83,7 @@ async def kakao_callback(code: str, state: str, response: Response, session: Asy
                     "nickname": user_data["nickname"],
                     "email":user_data["email"],
                     "profile_url":user_data["profile_url"],
-                    "roles":user_data["roles"],}
+                    "roles":member.roles,}
 
         except Exception as e:
             logger.error(f"[Kakao Callback] 회원 정보 데이터 베이스 저장 실패: {e}")
