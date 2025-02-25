@@ -69,7 +69,7 @@ class TravelScheduleAgentService:
         - 사용 가능한 카테고리: restaurant, cafe, site, accommodation (제공된 카테고리만 사용)
 
         규칙 및 조건:
-         ** tool 사용시 input은 "외부 데이터"의 spot 정보들을 list로 묶어 사용하세요.**
+         ** tool 사용시 input은 "외부 데이터"의 spots에 담긴 spot 정보들을 list로 묶어 사용하세요.**
         1. 일정은 각 날짜별로 생성되며, 전체 여행 기간은 {start_date} ~ {end_date}까지이다.
         2. 각 날짜별로 생성되는 시간 슬롯은 다음과 같다.
         - **중요** 만일 {end_date}뺴기{start_date}의 값이 '2' 이상일 경우, 중간일 일정을 만든다.
