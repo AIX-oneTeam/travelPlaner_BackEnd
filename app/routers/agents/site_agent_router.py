@@ -57,7 +57,7 @@ async def get_site_plan(
         return {
             "status": "success",
             "message": "관광지 추천 결과가 생성되었습니다.",
-            "data": {"spots": result},
+            "data": result,
         }
     except Exception as e:
         traceback.print_exc()

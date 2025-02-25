@@ -6,7 +6,7 @@ from app.services.agents.tools.cafe_tool import NaverBlogSearchTool,NaverReviewC
 from typing import Dict
 import os
 from dotenv import load_dotenv
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 from redis.asyncio import Redis
 import logging
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -131,7 +131,7 @@ class CafeAgentService:
             "collector_task" : Task(
                 description="""
                 1. 고객의 요구사항({prompt}), 여행 컨셉({concepts})을 반영해 keywords라는 이름의 리스트를 생성하고 키워드를 추가하세요.
-                2. tool 사용시 input은 "{main_location}"과 생성한 리스트 타입의 "keywords" 2개만 순서대로 입력해 사용하세요.
+                2. tool 사용시 input은 반드시 "{main_location}"과 생성한 리스트 타입의 "keywords" 2개만 순서대로 입력해 사용하세요.
                 - 각 키워드는 형용사 또는 명사인 하나의 단어여야 하고, 비슷한 의미를 가진 단어는 1개만 사용하세요.
                 - 1개로 충분하다면 불필요하게 2개 까지 생성하지 마세요.
                 - 키워드로 "카페" 또는 "지역명" 또는 "추천"은 사용하지 마세요.
@@ -220,7 +220,7 @@ class CafeAgentService:
                 output_pydantic=spots_pydantic
             )
         }     
-    @time_check   
+    @time_token_check
     async def create_recommendation_cafe(
         self, input_data: dict, session: AsyncSession = None, redis_client: Redis = None) -> dict:
         """
@@ -265,9 +265,8 @@ class CafeAgentService:
 
                     draft_result = await self.draft_crew.kickoff_async(inputs=input_data)
                     spots_dict = draft_result.pydantic.model_dump()
-                    
-                    # logger.info(f"----------draft_result.token_usage: {draft_result.token_usage}")      
-                    logger.info(f"----------draft_result.token_usage.__dict__: {draft_result.token_usage.__dict__}")      
+                    spots_dict["token_usage"] = draft_result.token_usage.__dict__
+                    logger.info(f"----------draft_result.token_usage: {draft_result.token_usage.__dict__}")      
                     
                     cafes_to_save = [spot["kor_name"] for spot in spots_dict.get("spots", [])]
                     logger.info(f"spots to save: {cafes_to_save}")
@@ -309,11 +308,11 @@ class CafeAgentService:
                 current_plan_id = input_data.get("plan_id")
                 logger.info(f"current_plan_id: {current_plan_id}")
                 try:
-                    plan_spots_with_spot_info = await get_member_plan_spots(current_plan_id, member_id, session)
+                    plan_spots_with_spot_info = await get_member_plan_spots(plan_id=current_plan_id, member_id=member_id, category_id=3, session=session)
                     if not plan_spots_with_spot_info:
                         latest_plan = await get_latest_plan(member_id, session)
                         if latest_plan:
-                            plan_spots_with_spot_info = await get_member_plan_spots(latest_plan.id, member_id, session)
+                            plan_spots_with_spot_info = await get_member_plan_spots(plan_id=latest_plan.id, member_id=member_id, category_id=3,session=session)
                             logger.info(f"최신 plan_id 사용: {latest_plan.id}")
                     else:
                         logger.info(f"전달받은 plan_id 사용: {current_plan_id}")
@@ -331,6 +330,8 @@ class CafeAgentService:
             # 9. 메인 에이전트를 실행하여 카페 추천 결과 도출
             result = await self.crew.kickoff_async(inputs=input_data)
             spots = result.pydantic.model_dump()
+            spots["token_usage"] = result.token_usage.__dict__
+
             # logger.info(f"----------result.token_usage: {result.token_usage}")      
             logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
      

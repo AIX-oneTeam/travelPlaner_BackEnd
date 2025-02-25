@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.dtos.site_models import TouristSite, TouristSiteList
 from app.utils.calculate_trip_days import calculate_trip_days
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 
 
 from app.repository.agents.site_plan_spots_repository import (
@@ -351,7 +351,7 @@ class TouristAgentService:
                 logger.warning(f"추가 관광지 파싱 실패: {e}")
         return additional_spots
 
-    @time_check
+    @time_token_check
     async def create_tourist_plan(
         self,
         input_data: dict,
@@ -617,8 +617,13 @@ class TouristAgentService:
 
                 for spot in final_result_with_time:
                     spot["spot_category"] = 1
-                return final_result_with_time
+                    
 
+                final_result_dict = {
+                    "spots": final_result_with_time,  # 리스트는 여기 저장
+                    "token_usage": result.token_usage.__dict__  # token_usage는 별도로 저장
+                }
+                return final_result_dict
             else:
                 current_plan_id = input_data.get("plan_id")
                 if "main_location" not in input_data or not input_data["main_location"]:
@@ -696,7 +701,12 @@ class TouristAgentService:
 
                 for spot in final_result_with_time:
                     spot["spot_category"] = 1
-                return final_result_with_time
+                    
+                final_result_dict = {
+                    "spots": final_result_with_time,  # 리스트는 여기 저장
+                    "token_usage": result.token_usage.__dict__  # token_usage는 별도로 저장
+                }
+                return final_result_dict
 
         except Exception as e:
             logger.error("[TouristAgent] 에러 - %s", e)

@@ -57,7 +57,7 @@ async def get_accommodation(user_input: TravelPlanRequest, prompt: Optional[str]
         return AccommodationResponse(
             status="success",
             message="숙소 리스트가 생성되었습니다.",
-            data={"spots": result},
+            data=result,
         )
 
     except Exception as e:

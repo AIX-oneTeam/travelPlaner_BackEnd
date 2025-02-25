@@ -3,7 +3,7 @@ from sqlalchemy import Column, Double, DateTime,Float
 from typing import List, Optional
 import phonenumbers
 from pydantic import field_validator, BaseModel
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Integer, Relationship, SQLModel
 from sqlalchemy import text
 from pydantic import validator
 
@@ -291,7 +291,14 @@ class AgentMetrics(SQLModel, table=True):
     id: Optional[int] | None = Field(default=None, primary_key=True)
     agent_name: str = Field(max_length=255, nullable=False)  # 실행한 에이전트 이름
     response_time: float = Field(sa_column=(Column(Float)))
+    total_tokens:int= Field(nullable=True)
+    prompt_tokens:int = Field(nullable=True)
+    cached_prompt_tokens:int = Field(nullable=True)
+    completion_tokens:int = Field(nullable=True)
+    successful_requests:int = Field(nullable=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)  
+
+
 class SurveyResponseCreate(BaseModel):
     rating: int
     comment: str

@@ -24,7 +24,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 # 테스트용 환경변수 로드
 from dotenv import load_dotenv
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 from app.services.agents.create_dummy_data import create_dummy_data
 from app.utils.extract_spots import extract_spots
 

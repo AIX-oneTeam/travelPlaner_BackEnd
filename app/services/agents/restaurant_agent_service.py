@@ -23,9 +23,8 @@ from app.services.agents.tools.restaurant_tool import (
 )
 from redis.asyncio import Redis
 from app.services.agents.redis.spot_redis import SpotRedisService, SpotCategory
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 import logging
-from app.utils.time_check import time_check
 
 logger = logging.getLogger("restaurant_agent_service")
 logger.setLevel(logging.INFO)
@@ -342,7 +341,7 @@ class RestaurantAgentService:
             "spots": spots_data.get("spots", []),
         }
 
-    @time_check
+    @time_token_check
     async def create_recommendation_restaurant(
         self,
         input_data: dict,
@@ -444,6 +443,8 @@ class RestaurantAgentService:
             logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
 
             processed_result = self._process_result(result, processed_input)
+            processed_result["token_usage"] = result.token_usage.__dict__
+
             print(f"⭐️ processed_result: {processed_result}")
 
             # 모든 작업이 끝난 후 메모리 정리

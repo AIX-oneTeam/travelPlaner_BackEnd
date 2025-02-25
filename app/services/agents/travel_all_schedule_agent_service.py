@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from typing import List, Dict
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from sqlmodel.ext.asyncio.session import AsyncSession
 from redis.asyncio import Redis 
@@ -156,7 +156,7 @@ class TravelScheduleAgentService:
             "spots": result.pydantic.model_dump()
         }
 
-    @time_check
+    @time_token_check
     async def create_plan(
         self,
         input_dict: dict, 
