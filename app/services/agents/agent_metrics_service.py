@@ -6,9 +6,9 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-async def get_agent_metrics_distribution(agent_name: str, session: AsyncSession):
+async def get_agent_metrics_distribution(session: AsyncSession):
     """
-    특정 에이전트의 실행 시간 분포를 반환하는 서비스 함수.
+    전체 에이전트의 실행 시간 분포를 반환하는 서비스 함수.
     
     기준:
       - under_2: 2분 이내 (<= 120초)
@@ -18,10 +18,10 @@ async def get_agent_metrics_distribution(agent_name: str, session: AsyncSession)
       - over_5: 5분 초과 (300초 초과)
     """
     try:
-        distribution = await get_time_distribution(agent_name, session)
-        # 필요하다면 여기서 추가적인 데이터 가공이나 비즈니스 로직을 적용할 수 있습니다.
+        distribution = await get_time_distribution(session)
         return distribution
     except Exception as e:
         logger.error(f"에이전트 실행 시간 분포 서비스 에러: {e}")
         raise e
+
 
