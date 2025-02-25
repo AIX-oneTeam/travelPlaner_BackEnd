@@ -1,11 +1,12 @@
 from datetime import datetime, time, timezone
-from sqlalchemy import Column, Double, DateTime
+from sqlalchemy import Column, Double, DateTime,Float
 from typing import List, Optional
 import phonenumbers
 from pydantic import field_validator, BaseModel
 from sqlmodel import Field, Relationship, SQLModel
 from sqlalchemy import text
 from pydantic import validator
+
 
 
 class AdministrativeDivision(SQLModel, table=True):
@@ -282,7 +283,17 @@ class SurveyResponse(SQLModel, table=True):
     member: "Member" = Relationship(back_populates="survey_responses")
 
 
+
+
+class AgentMetrics(SQLModel, table=True):
+    __tablename__ = "agent_metrics"
+
+    id: Optional[int] | None = Field(default=None, primary_key=True)
+    agent_name: str = Field(max_length=255, nullable=False)  # 실행한 에이전트 이름
+    response_time: float = Field(sa_column=(Column(Float)))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)  
 class SurveyResponseCreate(BaseModel):
     rating: int
     comment: str
     plan_id: Optional[int] = None
+

@@ -9,25 +9,28 @@ from redis.asyncio import Redis
 import logging
 import os
 from dotenv import load_dotenv
+
+
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.dtos.site_models import TouristSite, TouristSiteList
 from app.utils.calculate_trip_days import calculate_trip_days
 from app.utils.time_check import time_check
 
-# DB 관련 함수
+
 from app.repository.agents.site_plan_spots_repository import (
     get_member_plan_spots,
     get_latest_plan,
 )
 
-# Redis 서비스
+
 from app.services.agents.redis.spot_redis import SpotRedisService, SpotCategory
 
-# Tool 클래스들 (관광지 관련)
+
 from app.services.agents.tools.site_tool import (
     NaverTouristWebSearchTool,
     NaverTouristImageSearchTool,
     NaverTouristBusinessInfoTool,
+    KakaoGeocodeTool,
 )
 
 load_dotenv()
@@ -62,15 +65,16 @@ class TouristAgentService:
             temperature=0,
             max_tokens=4000,
         )
-        # 관광지 리스트, 이미지, 상세 정보용 도구
         self.get_tourist_list_tool = NaverTouristWebSearchTool()
         self.get_tourist_info_tool = NaverTouristImageSearchTool()
         self.get_tourist_business_info_tool = NaverTouristBusinessInfoTool()
-        # 리뷰 대신 웹 검색 결과를 통한 관광지 설명 추출 도구
         self.get_tourist_description_tool = NaverTouristWebSearchTool()
+        self.kakao_tool = KakaoGeocodeTool()
         self.agents = self._create_agents()
         self.tasks = self._create_tasks({})
-        logger.info("TouristAgentService initialized with agents: %s", list(self.agents.keys()))
+        logger.info(
+            "TouristAgentService initialized with agents: %s", list(self.agents.keys())
+        )
 
     def _create_agents(self) -> Dict[str, Agent]:
         return {
@@ -142,8 +146,14 @@ class TouristAgentService:
 
     def _create_tasks(self, input_data: dict, prompt_text: str = "") -> Dict[str, Task]:
         companion_text = (
-            ", ".join([f"{c.get('label', '미지정')} {c.get('count', 0)}명" for c in input_data.get("companion_count", [])])
-            if input_data.get("companion_count") else "동반자 정보 없음"
+            ", ".join(
+                [
+                    f"{c.get('label', '미지정')} {c.get('count', 0)}명"
+                    for c in input_data.get("companion_count", [])
+                ]
+            )
+            if input_data.get("companion_count")
+            else "동반자 정보 없음"
         )
         existing_spots = input_data.get("existing_spot_names", [])
         existing_spots_text = ", ".join(existing_spots) if existing_spots else "없음"
@@ -156,7 +166,7 @@ class TouristAgentService:
             '  "url": string or null,\n'
             '  "image_url": string,\n'
             '  "map_url": string,\n'
-            '  "spot_category": number,\n'
+            '  "spot_category": 1,\n'
             '  "phone_number": string or null,\n'
             '  "business_status": boolean or null,\n'
             '  "business_hours": string or null\n'
@@ -173,7 +183,7 @@ class TouristAgentService:
                     f"이전 Task에서 얻은 {main_location}의 좌표와 여행 정보를 바탕으로 관광지 검색에 사용할 "
                     f"가장 효과적인 검색 키워드 3개를 생성해주세요:\n"
                     f"# 입력 정보\n지역: {main_location}\n"
-                    f"좌표: {{coordinates}}\n"  # input_data에 "coordinates" 키 필요
+                    f"좌표: {{coordinates}}\n"
                     f"여행 기간: {input_data.get('start_date', '')} ~ {input_data.get('end_date', '')}\n"
                     f"연령대: {input_data.get('ages', '연령대 미지정')}\n"
                     f"동반자: {companion_text}\n"
@@ -206,11 +216,11 @@ class TouristAgentService:
                     f"# 입력 정보\n지역: {main_location}\n"
                     "웹 검색 결과에서 관광지에 관한 정보를 종합하여, 관광지의 특징과 설명을 간략하게 요약하고 반환하세요.\n"
                     "반환 형식은 다음과 같습니다:\n"
-                    '{{"kor_name": "관광지 이름", "eng_name": null, "address": "주소", "url": null, "image_url": "이미지 URL", "map_url": "지도 URL", "spot_category": 번호, "phone_number": null, "business_status": null, "business_hours": null}}'
+                    '{{"kor_name": "관광지 이름", "eng_name": null, "address": "주소", "url": null, "image_url": "이미지 URL", "map_url": "지도 URL", "spot_category": 1, "phone_number": null, "business_status": null, "business_hours": null}}'
                 ),
                 agent=self.agents["reviewer"],
                 expected_output=f"{main_location}의 관광지 웹 검색 결과 (JSON array)",
-                output_pydantic=TouristSiteList
+                output_pydantic=TouristSiteList,
             ),
             "decider_task": Task(
                 description=(
@@ -220,43 +230,85 @@ class TouristAgentService:
                     f"여행 기간 {input_data.get('start_date', '')} ~ {input_data.get('end_date', '')}에 적합한 관광지를 선정하세요.\n"
                     "만약 이전 태스크의 데이터가 없거나 부족한 경우, "
                     f"{main_location} 내에서 인기 있는 관광지를 추천하세요.\n"
-                    "반드시 아래 JSON 스키마에 맞추어 결과를 반환하세요:\n" + json_schema_prompt
+                    "반드시 아래 JSON 스키마에 맞추어 결과를 반환하세요. spot_category는 반드시 1로 설정하세요:\n"
+                    + json_schema_prompt
                 ),
                 agent=self.agents["decider"],
                 expected_output=f"{main_location}의 최종 관광지 추천 결과 (JSON array)",
-                output_pydantic=TouristSiteList
+                output_pydantic=TouristSiteList,
             ),
         }
 
     async def filter_image(self, image_url: str) -> bool:
-        # 관광지 사진에서는 인물 이미지가 필요 없으므로, 'profile'이나 'person'이 포함되면 제외합니다.
         if "profile" in image_url or "person" in image_url:
             return False
         return True
 
-    async def update_spot_image(self, spot: dict, main_location: str, used_image_urls: set):
-        # 이미지 검색 쿼리에서는 기존 "-인물" 옵션 제거, 장소 이름 그대로 검색
+    async def update_spot_image(
+        self, spot: dict, main_location: str, used_image_urls: set
+    ):
         queries = [
             f"{main_location} {spot['kor_name']} 사진",
             f"{spot['kor_name']} 대표 사진",
         ]
         for query in queries:
             image_url = await self.get_tourist_info_tool._arun(query)
-            if image_url and await self.filter_image(image_url) and image_url not in used_image_urls:
+            if (
+                image_url
+                and await self.filter_image(image_url)
+                and image_url not in used_image_urls
+            ):
                 try:
                     async with aiohttp.ClientSession() as session:
-                        async with session.head(image_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        async with session.head(
+                            image_url, timeout=aiohttp.ClientTimeout(total=5)
+                        ) as resp:
                             if resp.status == 200:
                                 spot["image_url"] = image_url
                                 used_image_urls.add(image_url)
-                                logger.info(f"Updated image for {spot['kor_name']}: {image_url}")
+                                logger.info(
+                                    f"Updated image for {spot['kor_name']}: {image_url}"
+                                )
                                 return
                 except Exception as e:
                     logger.warning(f"Image URL {image_url} 접근 실패: {e}")
         spot["image_url"] = None
-        logger.warning(f"Failed to update image for {spot['kor_name']}, setting to None.")
+        logger.warning(
+            f"Failed to update image for {spot['kor_name']}, setting to None."
+        )
 
-    async def fetch_additional_spots(self, main_location: str, seen_spots: set, required_count: int, exclusion_list: List[str]) -> List[dict]:
+    async def update_spot_coordinates(self, spot: dict, main_location: str):
+        """관광지의 주소를 기반으로 위도/경도 정보를 업데이트합니다."""
+        try:
+            address = spot.get("address")
+            if not address:
+                address = f"{main_location} {spot['kor_name']}"
+
+            coords = await self.kakao_tool.get_coordinates(address)
+            spot["latitude"] = coords["latitude"]
+            spot["longitude"] = coords["longitude"]
+
+            if spot["latitude"] == 0 and spot["longitude"] == 0:
+
+                coords = await self.kakao_tool.get_coordinates(
+                    f"{main_location} {spot['kor_name']}"
+                )
+                spot["latitude"] = coords["latitude"]
+                spot["longitude"] = coords["longitude"]
+
+            logger.info(f"Updated coordinates for {spot['kor_name']}: {coords}")
+        except Exception as e:
+            logger.error(f"Failed to get coordinates for {spot['kor_name']}: {e}")
+            spot["latitude"] = 0
+            spot["longitude"] = 0
+
+    async def fetch_additional_spots(
+        self,
+        main_location: str,
+        seen_spots: set,
+        required_count: int,
+        exclusion_list: List[str],
+    ) -> List[dict]:
         query = f"{main_location} 관광지 추천"
         search_result = await self.get_tourist_list_tool._arun(query)
         additional_spots = []
@@ -267,7 +319,6 @@ class TouristAgentService:
                 for i in range(0, len(lines), 3):
                     if i + 2 < len(lines) and "Title:" in lines[i]:
                         title = lines[i].split("Title:")[1].split("Link:")[0].strip()
-                        # 만약 title이 기존 추천 목록에 있다면 건너뜁니다.
                         if title in exclusion_list:
                             continue
                         key = (title, f"{main_location} {title}")
@@ -284,7 +335,10 @@ class TouristAgentService:
                                 "business_status": True,
                                 "business_hours": "09:00 - 18:00",
                             }
-                            await self.update_spot_image(spot, main_location, used_image_urls)
+                            await self.update_spot_image(
+                                spot, main_location, used_image_urls
+                            )
+                            spot["spot_category"] = 1
                             additional_spots.append(spot)
                             seen_spots.add(key)
                             if len(additional_spots) >= required_count:
@@ -294,18 +348,32 @@ class TouristAgentService:
         return additional_spots
 
     @time_check
-    async def create_tourist_plan(self, input_data: dict, redis_client: Redis = None, session: Optional[AsyncSession] = None, prompt: Optional[str] = "") -> dict:
+    async def create_tourist_plan(
+        self,
+        input_data: dict,
+        redis_client: Redis = None,
+        session: Optional[AsyncSession] = None,
+        prompt: Optional[str] = "",
+    ) -> dict:
         if input_data is None:
             raise ValueError("[TouristAgent] 에러 - input_data이 없습니다.")
         logger.info("Starting create_tourist_plan with input_data: %s", input_data)
-        
-        # 템플릿 변수 "coordinates" 추가 (실제 결과에 맞게 수정 가능)
-        if "coordinates" not in input_data:
-            input_data["coordinates"] = "37.3942° N, 126.9255° E"
-        
+
+        if "coordinates" not in input_data or not input_data["coordinates"]:
+            main_location = input_data.get("main_location")
+            if main_location:
+                coords = await self.kakao_tool.get_coordinates(main_location)
+                input_data["coordinates"] = (
+                    f"{coords['latitude']}° N, {coords['longitude']}° E"
+                )
+            else:
+                input_data["coordinates"] = "37.3942° N, 126.9255° E"
+
         input_data["concepts"] = ", ".join(input_data.get("concepts", []))
         input_data["prompt"] = input_data.get("prompt", "") or prompt
-        days = calculate_trip_days(input_data.get("start_date", ""), input_data.get("end_date", ""))
+        days = calculate_trip_days(
+            input_data.get("start_date", ""), input_data.get("end_date", "")
+        )
         input_data["days"] = days
         input_data["n"] = days * 3
 
@@ -316,14 +384,18 @@ class TouristAgentService:
         try:
             if "member_id" not in input_data or not input_data["member_id"]:
                 if session is None:
-                    raise ValueError("[TouristAgent] 에러 - member_id가 필요하며, 세션이 제공되지 않았습니다.")
+                    raise ValueError(
+                        "[TouristAgent] 에러 - member_id가 필요하며, 세션이 제공되지 않았습니다."
+                    )
                 email = input_data.get("email")
                 if not email:
                     raise ValueError("[TouristAgent] 에러 - email이 필요합니다.")
                 provider = input_data.get("provider")
                 member_id = await get_memberId_by_email(email, session, provider)
                 if not member_id:
-                    raise ValueError("[TouristAgent] 에러 - 인증된 사용자를 찾을 수 없습니다.")
+                    raise ValueError(
+                        "[TouristAgent] 에러 - 인증된 사용자를 찾을 수 없습니다."
+                    )
                 input_data["member_id"] = member_id
             member_id = input_data["member_id"]
             main_location = input_data.get("main_location")
@@ -333,42 +405,62 @@ class TouristAgentService:
                 logger.error("self.agents is not defined, reinitializing")
                 self.initialize()
             self.tasks = self._create_tasks(input_data, prompt)
-            logger.info("[TouristAgent] Tasks updated with main_location: %s", main_location)
+            logger.info(
+                "[TouristAgent] Tasks updated with main_location: %s", main_location
+            )
             self.tasks["researcher_task"].context = [self.tasks["collector_task"]]
-            self.tasks["researcher_detail_task"].context = [self.tasks["researcher_task"]]
+            self.tasks["researcher_detail_task"].context = [
+                self.tasks["researcher_task"]
+            ]
             self.tasks["reviewer_task"].context = [self.tasks["researcher_detail_task"]]
             self.tasks["decider_task"].context = [self.tasks["reviewer_task"]]
 
-            cached_tourist_lists = await spot_redis_service.get_spots(member_id, SpotCategory.SITE, main_location)
-            # Redis에 저장된 관광지 이름 목록 (중복 제거용)
-            exclusion_list = [spot.get("kor_name") for spot in cached_tourist_lists if spot.get("kor_name")]
+            cached_tourist_lists = await spot_redis_service.get_spots(
+                member_id, SpotCategory.SITE, main_location
+            )
+            exclusion_list = [
+                spot.get("kor_name")
+                for spot in cached_tourist_lists
+                if spot.get("kor_name")
+            ]
             input_data["existing_spot_names"] = exclusion_list
 
             used_image_urls = set()
             seen_spots = set()
             existing_spots_from_db = []
             if input_data.get("plan_id"):
-                plan_spots = await get_member_plan_spots(input_data["plan_id"], member_id, session)
+                plan_spots = await get_member_plan_spots(
+                    input_data["plan_id"], member_id, session
+                )
                 if plan_spots and "detail" in plan_spots:
-                    existing_spots_from_db = [{
-                        "kor_name": item["spot"].kor_name,
-                        "eng_name": item["spot"].eng_name,
-                        "address": item["spot"].address,
-                        "url": item["spot"].url,
-                        "image_url": item["spot"].image_url,
-                        "map_url": item["spot"].map_url,
-                        "spot_category": item["spot"].spot_category,
-                        "phone_number": item["spot"].phone_number,
-                        "business_status": item["spot"].business_status,
-                        "business_hours": item["spot"].business_hours,
-                    } for item in plan_spots["detail"]]
-                    input_data["existing_spot_names"] = [spot["kor_name"] for spot in existing_spots_from_db]
+                    existing_spots_from_db = [
+                        {
+                            "kor_name": item["spot"].kor_name,
+                            "eng_name": item["spot"].eng_name,
+                            "address": item["spot"].address,
+                            "url": item["spot"].url,
+                            "image_url": item["spot"].image_url,
+                            "map_url": item["spot"].map_url,
+                            "spot_category": 1,
+                            "phone_number": item["spot"].phone_number,
+                            "business_status": item["spot"].business_status,
+                            "business_hours": item["spot"].business_hours,
+                        }
+                        for item in plan_spots["detail"]
+                    ]
+                    input_data["existing_spot_names"] = [
+                        spot["kor_name"] for spot in existing_spots_from_db
+                    ]
                     for spot in existing_spots_from_db:
                         seen_spots.add((spot["kor_name"], spot["address"]))
 
             if not input_data.get("plan_id"):
-                logger.info("[TouristAgent] Cached tourist lists: %s", cached_tourist_lists)
-                cached_unique = [spot for spot in cached_tourist_lists if spot.get("kor_name")]
+                logger.info(
+                    "[TouristAgent] Cached tourist lists: %s", cached_tourist_lists
+                )
+                cached_unique = [
+                    spot for spot in cached_tourist_lists if spot.get("kor_name")
+                ]
 
                 if len(cached_unique) < days * 3:
                     crew = Crew(
@@ -378,16 +470,27 @@ class TouristAgentService:
                         verbose=True,
                     )
                     result = await crew.kickoff_async(inputs=input_data)
-                    logger.info("[TouristAgent] Crew execution completed with result: %s", result)
-                    if result is None or not hasattr(result, "tasks_output") or not result.tasks_output:
-                        raise ValueError("[TouristAgent] 에러 - Crew 실행 결과가 비어 있음")
+                    logger.info(
+                        "[TouristAgent] Crew execution completed with result: %s",
+                        result,
+                    )
+                    if (
+                        result is None
+                        or not hasattr(result, "tasks_output")
+                        or not result.tasks_output
+                    ):
+                        raise ValueError(
+                            "[TouristAgent] 에러 - Crew 실행 결과가 비어 있음"
+                        )
                     final_output = result.tasks_output[-1].raw
                     try:
                         final_result = json.loads(final_output)
                         if isinstance(final_result, dict) and "spots" in final_result:
                             final_result = final_result["spots"]
                         if not isinstance(final_result, list):
-                            raise ValueError("[TouristAgent] 에러 - final_result가 리스트가 아님")
+                            raise ValueError(
+                                "[TouristAgent] 에러 - final_result가 리스트가 아님"
+                            )
                     except json.JSONDecodeError:
                         logger.warning("final_output 파싱 실패, 기본 데이터 사용")
                         final_result = cached_unique
@@ -398,62 +501,89 @@ class TouristAgentService:
                         verbose=True,
                     )
                     result = await draft_crew.kickoff_async(inputs=input_data)
-                    if result is None or not hasattr(result, "tasks_output") or not result.tasks_output:
-                        raise ValueError("[TouristAgent] 에러 - Draft Crew 실행 결과가 비어 있음")
+                    if (
+                        result is None
+                        or not hasattr(result, "tasks_output")
+                        or not result.tasks_output
+                    ):
+                        raise ValueError(
+                            "[TouristAgent] 에러 - Draft Crew 실행 결과가 비어 있음"
+                        )
                     final_output = result.tasks_output[-1].raw
                     try:
                         final_result = json.loads(final_output)
                         if isinstance(final_result, dict) and "spots" in final_result:
                             final_result = final_result["spots"]
                         if not isinstance(final_result, list):
-                            raise ValueError("[TouristAgent] 에러 - final_result가 리스트가 아님")
+                            raise ValueError(
+                                "[TouristAgent] 에러 - final_result가 리스트가 아님"
+                            )
                     except json.JSONDecodeError:
                         logger.warning("final_output 파싱 실패, 기본 데이터 사용")
                         final_result = cached_unique
 
-                # 최종 결과에서 Redis에 이미 저장된 관광지는 제외
-                final_result = [spot for spot in final_result if spot.get("kor_name") not in exclusion_list]
+                final_result = [
+                    spot
+                    for spot in final_result
+                    if spot.get("kor_name") not in exclusion_list
+                ]
 
-                # reviewer_task(웹 검색 결과) 보정: 웹 검색 결과에 따라 image_url 및 description 업데이트
                 if hasattr(result, "tasks_output"):
                     for task_output in result.tasks_output:
                         if "관광지 웹 검색가" in str(task_output):
                             try:
                                 web_output = json.loads(task_output.raw)
                                 for spot in final_result:
-                                    full_place_id = f"{main_location} {spot['kor_name']}"
+                                    full_place_id = (
+                                        f"{main_location} {spot['kor_name']}"
+                                    )
                                     for web_spot in web_output:
                                         if full_place_id == web_spot.get("placeId"):
-                                            spot["image_url"] = web_spot.get("image_url", spot["image_url"])
-                                            spot["description"] = web_spot.get("description", spot.get("description", ""))
+                                            spot["image_url"] = web_spot.get(
+                                                "image_url", spot["image_url"]
+                                            )
+                                            spot["description"] = web_spot.get(
+                                                "description",
+                                                spot.get("description", ""),
+                                            )
                             except json.JSONDecodeError:
                                 logger.warning("웹 검색 결과 파싱 실패, 데이터 없음")
-                
+
                 unique_final_result = []
                 for spot in final_result:
                     key = (spot.get("kor_name"), spot.get("address"))
                     if key not in seen_spots:
                         spot["placeId"] = f"{main_location} {spot['kor_name']}"
-                        await self.update_spot_image(spot, main_location, used_image_urls)
-                        spot["spot_category"] = spot.get("spot_category", 1)
+                        await self.update_spot_image(
+                            spot, main_location, used_image_urls
+                        )
+                        await self.update_spot_coordinates(spot, main_location)
+                        spot["spot_category"] = 1
                         unique_final_result.append(spot)
                         seen_spots.add(key)
-                
+
                 merged_list = unique_final_result
                 final_merged = []
                 final_seen = set()
                 for spot in merged_list:
                     key = (spot.get("kor_name"), spot.get("address"))
                     if key not in final_seen and len(final_merged) < input_data["n"]:
+                        spot["spot_category"] = 1
                         final_merged.append(spot)
                         final_seen.add(key)
-                
+
                 if len(final_merged) < input_data["n"]:
                     required_count = input_data["n"] - len(final_merged)
-                    logger.warning(f"Only {len(final_merged)} spots found, fetching {required_count} additional spots.")
-                    additional_spots = await self.fetch_additional_spots(main_location, final_seen, required_count, exclusion_list)
+                    logger.warning(
+                        f"Only {len(final_merged)} spots found, fetching {required_count} additional spots."
+                    )
+                    additional_spots = await self.fetch_additional_spots(
+                        main_location, final_seen, required_count, exclusion_list
+                    )
+                    for spot in additional_spots:
+                        spot["spot_category"] = 1
                     final_merged.extend(additional_spots)
-                
+
                 if redis_client and member_id:
                     redis_key = str(member_id)
                     processed_result = {
@@ -466,16 +596,27 @@ class TouristAgentService:
                         },
                         "spots": final_merged,
                     }
-                    await redis_client.set(redis_key, json.dumps(processed_result), ex=86400)
+                    await redis_client.set(
+                        redis_key, json.dumps(processed_result), ex=86400
+                    )
                     logger.info("[DEBUG] Redis에 key='%s'로 저장 완료.", redis_key)
-                
-                final_result_with_time = self._assign_spot_times(final_merged, days, input_data)
+
+                for spot in final_merged:
+                    spot["spot_category"] = 1
+                final_result_with_time = self._assign_spot_times(
+                    final_merged, days, input_data
+                )
+
+                for spot in final_result_with_time:
+                    spot["spot_category"] = 1
                 return final_result_with_time
-            
+
             else:
                 current_plan_id = input_data.get("plan_id")
                 if "main_location" not in input_data or not input_data["main_location"]:
-                    raise ValueError("[TouristAgent] 에러 - main_location이 필요합니다.")
+                    raise ValueError(
+                        "[TouristAgent] 에러 - main_location이 필요합니다."
+                    )
                 main_location = input_data["main_location"]
                 crew = Crew(
                     agents=list(self.agents.values()),
@@ -484,7 +625,11 @@ class TouristAgentService:
                     verbose=True,
                 )
                 result = await crew.kickoff_async(inputs=input_data)
-                if result is None or not hasattr(result, "tasks_output") or not result.tasks_output:
+                if (
+                    result is None
+                    or not hasattr(result, "tasks_output")
+                    or not result.tasks_output
+                ):
                     raise ValueError("[TouristAgent] 에러 - Crew 실행 결과가 비어 있음")
                 final_output = result.tasks_output[-1].raw
                 try:
@@ -492,36 +637,55 @@ class TouristAgentService:
                     if isinstance(final_result, dict) and "spots" in final_result:
                         final_result = final_result["spots"]
                     if not isinstance(final_result, list):
-                        raise ValueError("[TouristAgent] 에러 - final_result가 리스트가 아님")
+                        raise ValueError(
+                            "[TouristAgent] 에러 - final_result가 리스트가 아님"
+                        )
                 except json.JSONDecodeError:
                     logger.warning("final_output 파싱 실패, DB 데이터 사용")
                     final_result = existing_spots_from_db
-                
+
                 if hasattr(result, "tasks_output"):
                     for task_output in result.tasks_output:
                         if "관광지 웹 검색가" in str(task_output):
                             try:
                                 web_output = json.loads(task_output.raw)
                                 for spot in final_result:
-                                    full_place_id = f"{main_location} {spot['kor_name']}"
+                                    full_place_id = (
+                                        f"{main_location} {spot['kor_name']}"
+                                    )
                                     for web_spot in web_output:
                                         if full_place_id == web_spot.get("placeId"):
-                                            spot["image_url"] = web_spot.get("image_url", spot["image_url"])
-                                            spot["description"] = web_spot.get("description", spot.get("description", ""))
+                                            spot["image_url"] = web_spot.get(
+                                                "image_url", spot["image_url"]
+                                            )
+                                            spot["description"] = web_spot.get(
+                                                "description",
+                                                spot.get("description", ""),
+                                            )
                             except json.JSONDecodeError:
                                 logger.warning("웹 검색 결과 파싱 실패, 데이터 없음")
-                
+
                 unique_final_result = []
                 for spot in final_result:
                     key = (spot.get("kor_name"), spot.get("address"))
                     if key not in seen_spots:
                         spot["placeId"] = f"{main_location} {spot['kor_name']}"
-                        await self.update_spot_image(spot, main_location, used_image_urls)
-                        spot["spot_category"] = spot.get("spot_category", 1)
+                        await self.update_spot_image(
+                            spot, main_location, used_image_urls
+                        )
+                        await self.update_spot_coordinates(spot, main_location)
+                        spot["spot_category"] = 1
                         unique_final_result.append(spot)
                         seen_spots.add(key)
-                
-                final_result_with_time = self._assign_spot_times(unique_final_result, days, input_data)
+
+                for spot in unique_final_result:
+                    spot["spot_category"] = 1
+                final_result_with_time = self._assign_spot_times(
+                    unique_final_result, days, input_data
+                )
+
+                for spot in final_result_with_time:
+                    spot["spot_category"] = 1
                 return final_result_with_time
 
         except Exception as e:
@@ -541,6 +705,7 @@ class TouristAgentService:
                 spot = spots[spot_index].copy()
                 spot["day"] = current_day
                 spot["order"] = time_slots.index(time_slot) + 1
+                spot["spot_category"] = 1
                 sorted_spots.append(spot)
                 spot_index += 1
             current_day += 1
@@ -548,6 +713,7 @@ class TouristAgentService:
             spot = spots[spot_index].copy()
             spot["day"] = days
             spot["order"] = len([s for s in sorted_spots if s["day"] == days]) + 1
+            spot["spot_category"] = 1
             sorted_spots.append(spot)
             spot_index += 1
         return sorted_spots
