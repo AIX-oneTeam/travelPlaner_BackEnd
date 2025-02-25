@@ -34,7 +34,7 @@ class Member(SQLModel, table=True):
     zip: Optional[str] = Field(default=None, max_length=10)
     phone_number: Optional[str] = Field(default=None, max_length=20)
     voice: Optional[str] = Field(default=None, max_length=255)
-    role: Optional[str] = Field(default=None, max_length=10)
+    roles: Optional[str] = Field(default=None, max_length=10)
     created_at: datetime = Field(
         sa_column_kwargs={
             "server_default": text("CURRENT_TIMESTAMP"),
