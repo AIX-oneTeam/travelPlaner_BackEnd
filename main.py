@@ -27,6 +27,8 @@ from app.routers.chceklists.checklist_router import router as checklist_router
 from app.routers.redis_test import router as redis_test_router
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.routers.voice_router import router as voice_router
+from app.routers.inquiries.inquiry_router import router as inquiry_router
+from app.routers.survey.survey_router import router as survey_router
 import os
 from dotenv import load_dotenv
 import logging
@@ -183,7 +185,7 @@ async def jwt_auth_middleware(request: Request, call_next):
         request.state.user = None
         return ErrorResponse(
             status_code=500,
-            error_code=str(e),
+            error_detail=str(e),
             message="jwt 미들웨어에서 발생한 오류",
         )
 
@@ -259,4 +261,5 @@ app.include_router(checklist_router, prefix="/checklist", tags=["checklists"])
 app.include_router(redis_test_router, prefix="/redis", tags=["redis"])
 app.include_router(voice_router, prefix="/voice", tags=["voice"])
 app.include_router(redis_test_router, prefix="/redis-test", tags=["redis-test"])
-
+app.include_router(inquiry_router, prefix="/inquiries", tags=["inquiry"])
+app.include_router(survey_router, prefix="/survey", tags=["survey"])

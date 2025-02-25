@@ -1,11 +1,12 @@
-from datetime import datetime, time
-from sqlalchemy import Column, Double
+from datetime import datetime, time, timezone
+from sqlalchemy import Column, Double, DateTime
 from typing import List, Optional
 import phonenumbers
-from pydantic import field_validator
+from pydantic import field_validator, BaseModel
 from sqlmodel import Field, Relationship, SQLModel
 from sqlalchemy import text
 from pydantic import validator
+
 
 class AdministrativeDivision(SQLModel, table=True):
     __tablename__ = "administrative_division"
@@ -34,19 +35,26 @@ class Member(SQLModel, table=True):
     voice: Optional[str] = Field(default=None, max_length=255)
     role: Optional[str] = Field(default=None, max_length=10)
     created_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
 
     plans: List["Plan"] = Relationship(back_populates="member")
-
+    inquiries: list["Inquiry"] = Relationship(back_populates="member")
+    survey_responses: List["SurveyResponse"] = Relationship(back_populates="member")
 
     # 전화번호 유효성 검사
     @field_validator("phone_number")
     def check_phone_number(cls, values):
-        phone_number = values.get('phone_number')
+        phone_number = values.get("phone_number")
         try:
             parsed_number = phonenumbers.is_valid_number(phone_number)
             if not parsed_number:
@@ -55,17 +63,25 @@ class Member(SQLModel, table=True):
             raise ValueError(f"Invalid phone number: {phone_number}") from e
         return values
 
+
 class MessageToken(SQLModel, table=True):
     __tablename__ = "message_token"
     id: Optional[int] = Field(default=None, primary_key=True)
     member_id: int = Field(foreign_key="member.id")
     token: str = Field(max_length=2083)
     created_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
+
 
 class Plan(SQLModel, table=True):
     __tablename__ = "plan"
@@ -79,15 +95,26 @@ class Plan(SQLModel, table=True):
     concepts: Optional[str] = Field(default=None, max_length=255)
     member_id: int = Field(foreign_key="member.id")
     created_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
-    
+
     member: Member = Relationship(back_populates="plans")
-    checklists: Optional["Checklist"]= Relationship(back_populates="plan", cascade_delete=True)
-    plan_spots: List["PlanSpotMap"] = Relationship(back_populates="plan", cascade_delete=True)
+    checklists: Optional["Checklist"] = Relationship(
+        back_populates="plan", cascade_delete=True
+    )
+    plan_spots: List["PlanSpotMap"] = Relationship(
+        back_populates="plan", cascade_delete=True
+    )
+
 
 class Spot(SQLModel, table=True):
     __tablename__ = "spot"
@@ -106,16 +133,22 @@ class Spot(SQLModel, table=True):
     business_status: Optional[bool] = None
     business_hours: Optional[str] = Field(default=None, max_length=255)
     created_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
-    
-    plan_spots: List["PlanSpotMap"] = Relationship(back_populates="spot", cascade_delete=True)
+
+    plan_spots: List["PlanSpotMap"] = Relationship(
+        back_populates="spot", cascade_delete=True
+    )
     spot_tags: List["PlanSpotTagMap"] = Relationship(back_populates="spot")
-
-
 
     @validator("business_status", pre=True, always=True)
     def convert_bool_to_int(cls, value):
@@ -125,8 +158,11 @@ class Spot(SQLModel, table=True):
             return int(value.lower() == "true")
         elif isinstance(value, int) and value in {0, 1}:
             return value
-        raise ValueError("Invalid value for business_status. Must be a boolean, 'true'/'false', or 0/1.")
-   
+        raise ValueError(
+            "Invalid value for business_status. Must be a boolean, 'true'/'false', or 0/1."
+        )
+
+
 class PlanSpotMap(SQLModel, table=True):
     __tablename__ = "plan_spot_map"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -136,14 +172,21 @@ class PlanSpotMap(SQLModel, table=True):
     order: int = Field(...)
     spot_time: Optional[time] = Field(default=None)  # 시간 필드 추가
     created_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
 
     plan: Plan = Relationship(back_populates="plan_spots")
     spot: Spot = Relationship(back_populates="plan_spots")
+
 
 class SpotTag(SQLModel, table=True):
     __tablename__ = "spot_tag"
@@ -151,7 +194,8 @@ class SpotTag(SQLModel, table=True):
     spot_tag: str = Field(max_length=255)
 
     spot_tags: List["PlanSpotTagMap"] = Relationship(back_populates="spot_tag")
-    
+
+
 class PlanSpotTagMap(SQLModel, table=True):
     __tablename__ = "plan_spot_tag_map"
     spot_id: int = Field(foreign_key="spot.id", primary_key=True)
@@ -160,6 +204,7 @@ class PlanSpotTagMap(SQLModel, table=True):
     spot: Spot = Relationship(back_populates="spot_tags")
     spot_tag: SpotTag = Relationship(back_populates="spot_tags")
 
+
 class Checklist(SQLModel, table=True):
     __tablename__ = "checklist"
     id: str = Field(default=None, primary_key=True)
@@ -167,13 +212,20 @@ class Checklist(SQLModel, table=True):
     item: Optional[str] = Field(default=None, max_length=255)
     checked: Optional[bool] = None
     created_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
 
     plan: Plan = Relationship(back_populates="checklists")
+
 
 class ImageUrl(SQLModel, table=True):
     __tablename__ = "image_url"
@@ -181,8 +233,56 @@ class ImageUrl(SQLModel, table=True):
     name: str = Field(max_length=255)
     url: str = Field(max_length=2083)
     created_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), "nullable": False}
+        sa_column_kwargs={
+            "server_default": text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            "nullable": False,
+        }
     )
+
+
+class Inquiry(SQLModel, table=True):
+    __tablename__ = "inquiry"
+
+    inquiry_id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int = Field(foreign_key="member.id")
+    title: str = Field(..., max_length=255)
+    content: str = Field(..., max_length=5000)
+    answer: Optional[str] = Field(default=None, max_length=5000)
+    status: str = Field(default="pending", max_length=20)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    answered_at: Optional[datetime] = Field(
+        sa_column=Column(
+            DateTime(timezone=True), nullable=True
+        )
+    )
+
+    member: "Member" = Relationship(back_populates="inquiries")
+
+
+class SurveyResponse(SQLModel, table=True):
+    __tablename__ = "survey_response"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int = Field(foreign_key="member.id")
+    plan_id: Optional[int] = Field(default=None)
+    rating: int = Field(default=0)
+    comment: str = Field(default="", max_length=500)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    answered_at: Optional[datetime] = Field(default=None)
+    member: "Member" = Relationship(back_populates="survey_responses")
+
+
+class SurveyResponseCreate(BaseModel):
+    rating: int
+    comment: str
+    plan_id: Optional[int] = None
