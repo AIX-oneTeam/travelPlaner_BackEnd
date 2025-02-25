@@ -28,6 +28,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.routers.voice_router import router as voice_router
 from app.routers.inquiries.inquiry_router import router as inquiry_router
 from app.routers.survey.survey_router import router as survey_router
+from app.routers.agents.agent_metrics_router import router as agent_metrics_router
 import os
 from dotenv import load_dotenv
 import logging
@@ -264,3 +265,4 @@ app.include_router(checklist_router, prefix="/checklist", tags=["checklists"])
 app.include_router(voice_router, prefix="/voice", tags=["voice"])
 app.include_router(inquiry_router, prefix="/inquiries", tags=["inquiry"])
 app.include_router(survey_router, prefix="/survey", tags=["survey"])
+app.include_router(agent_metrics_router, prefix="/agents", tags=["agents"])
