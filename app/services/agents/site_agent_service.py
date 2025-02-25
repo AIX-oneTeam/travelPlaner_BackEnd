@@ -10,21 +10,17 @@ import logging
 import os
 from dotenv import load_dotenv
 
-
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.dtos.site_models import TouristSite, TouristSiteList
 from app.utils.calculate_trip_days import calculate_trip_days
 from app.utils.time_check import time_check
-
 
 from app.repository.agents.site_plan_spots_repository import (
     get_member_plan_spots,
     get_latest_plan,
 )
 
-
 from app.services.agents.redis.spot_redis import SpotRedisService, SpotCategory
-
 
 from app.services.agents.tools.site_tool import (
     NaverTouristWebSearchTool,
@@ -145,17 +141,25 @@ class TouristAgentService:
         }
 
     def _create_tasks(self, input_data: dict, prompt_text: str = "") -> Dict[str, Task]:
+        # companion_count가 리스트인지 확인하고, 아니라면 빈 리스트로 처리
+        companion_count = input_data.get("companion_count", [])
+        if not isinstance(companion_count, list):
+            companion_count = []
         companion_text = (
             ", ".join(
                 [
                     f"{c.get('label', '미지정')} {c.get('count', 0)}명"
-                    for c in input_data.get("companion_count", [])
+                    for c in companion_count
                 ]
             )
-            if input_data.get("companion_count")
+            if companion_count
             else "동반자 정보 없음"
         )
+
+        # existing_spot_names도 리스트인지 확인
         existing_spots = input_data.get("existing_spot_names", [])
+        if not isinstance(existing_spots, list):
+            existing_spots = []
         existing_spots_text = ", ".join(existing_spots) if existing_spots else "없음"
         main_location = input_data.get("main_location", "지역 미지정")
         json_schema_prompt = (
@@ -283,19 +287,15 @@ class TouristAgentService:
             address = spot.get("address")
             if not address:
                 address = f"{main_location} {spot['kor_name']}"
-
             coords = await self.kakao_tool.get_coordinates(address)
             spot["latitude"] = coords["latitude"]
             spot["longitude"] = coords["longitude"]
-
             if spot["latitude"] == 0 and spot["longitude"] == 0:
-
                 coords = await self.kakao_tool.get_coordinates(
                     f"{main_location} {spot['kor_name']}"
                 )
                 spot["latitude"] = coords["latitude"]
                 spot["longitude"] = coords["longitude"]
-
             logger.info(f"Updated coordinates for {spot['kor_name']}: {coords}")
         except Exception as e:
             logger.error(f"Failed to get coordinates for {spot['kor_name']}: {e}")
@@ -358,7 +358,6 @@ class TouristAgentService:
         if input_data is None:
             raise ValueError("[TouristAgent] 에러 - input_data이 없습니다.")
         logger.info("Starting create_tourist_plan with input_data: %s", input_data)
-
         if "coordinates" not in input_data or not input_data["coordinates"]:
             main_location = input_data.get("main_location")
             if main_location:
@@ -368,19 +367,20 @@ class TouristAgentService:
                 )
             else:
                 input_data["coordinates"] = "37.3942° N, 126.9255° E"
-
-        input_data["concepts"] = ", ".join(input_data.get("concepts", []))
+        # concepts가 리스트인지 확인
+        concepts = input_data.get("concepts", [])
+        if not isinstance(concepts, list):
+            concepts = []
+        input_data["concepts"] = ", ".join(concepts)
         input_data["prompt"] = input_data.get("prompt", "") or prompt
         days = calculate_trip_days(
             input_data.get("start_date", ""), input_data.get("end_date", "")
         )
         input_data["days"] = days
         input_data["n"] = days * 3
-
         if redis_client is None:
             raise ValueError("[TouristAgent] 에러 - Redis 연결을 확인해주세요")
         spot_redis_service = SpotRedisService(redis_client)
-
         try:
             if "member_id" not in input_data or not input_data["member_id"]:
                 if session is None:
@@ -414,7 +414,6 @@ class TouristAgentService:
             ]
             self.tasks["reviewer_task"].context = [self.tasks["researcher_detail_task"]]
             self.tasks["decider_task"].context = [self.tasks["reviewer_task"]]
-
             cached_tourist_lists = await spot_redis_service.get_spots(
                 member_id, SpotCategory.SITE, main_location
             )
@@ -424,7 +423,6 @@ class TouristAgentService:
                 if spot.get("kor_name")
             ]
             input_data["existing_spot_names"] = exclusion_list
-
             used_image_urls = set()
             seen_spots = set()
             existing_spots_from_db = []
@@ -453,7 +451,6 @@ class TouristAgentService:
                     ]
                     for spot in existing_spots_from_db:
                         seen_spots.add((spot["kor_name"], spot["address"]))
-
             if not input_data.get("plan_id"):
                 logger.info(
                     "[TouristAgent] Cached tourist lists: %s", cached_tourist_lists
@@ -461,7 +458,6 @@ class TouristAgentService:
                 cached_unique = [
                     spot for spot in cached_tourist_lists if spot.get("kor_name")
                 ]
-
                 if len(cached_unique) < days * 3:
                     crew = Crew(
                         agents=list(self.agents.values()),
@@ -521,13 +517,11 @@ class TouristAgentService:
                     except json.JSONDecodeError:
                         logger.warning("final_output 파싱 실패, 기본 데이터 사용")
                         final_result = cached_unique
-
                 final_result = [
                     spot
                     for spot in final_result
                     if spot.get("kor_name") not in exclusion_list
                 ]
-
                 if hasattr(result, "tasks_output"):
                     for task_output in result.tasks_output:
                         if "관광지 웹 검색가" in str(task_output):
@@ -548,7 +542,6 @@ class TouristAgentService:
                                             )
                             except json.JSONDecodeError:
                                 logger.warning("웹 검색 결과 파싱 실패, 데이터 없음")
-
                 unique_final_result = []
                 for spot in final_result:
                     key = (spot.get("kor_name"), spot.get("address"))
@@ -561,7 +554,6 @@ class TouristAgentService:
                         spot["spot_category"] = 1
                         unique_final_result.append(spot)
                         seen_spots.add(key)
-
                 merged_list = unique_final_result
                 final_merged = []
                 final_seen = set()
@@ -571,7 +563,6 @@ class TouristAgentService:
                         spot["spot_category"] = 1
                         final_merged.append(spot)
                         final_seen.add(key)
-
                 if len(final_merged) < input_data["n"]:
                     required_count = input_data["n"] - len(final_merged)
                     logger.warning(
@@ -583,7 +574,6 @@ class TouristAgentService:
                     for spot in additional_spots:
                         spot["spot_category"] = 1
                     final_merged.extend(additional_spots)
-
                 if redis_client and member_id:
                     redis_key = str(member_id)
                     processed_result = {
@@ -600,17 +590,14 @@ class TouristAgentService:
                         redis_key, json.dumps(processed_result), ex=86400
                     )
                     logger.info("[DEBUG] Redis에 key='%s'로 저장 완료.", redis_key)
-
                 for spot in final_merged:
                     spot["spot_category"] = 1
                 final_result_with_time = self._assign_spot_times(
                     final_merged, days, input_data
                 )
-
                 for spot in final_result_with_time:
                     spot["spot_category"] = 1
                 return final_result_with_time
-
             else:
                 current_plan_id = input_data.get("plan_id")
                 if "main_location" not in input_data or not input_data["main_location"]:
@@ -643,7 +630,6 @@ class TouristAgentService:
                 except json.JSONDecodeError:
                     logger.warning("final_output 파싱 실패, DB 데이터 사용")
                     final_result = existing_spots_from_db
-
                 if hasattr(result, "tasks_output"):
                     for task_output in result.tasks_output:
                         if "관광지 웹 검색가" in str(task_output):
@@ -664,7 +650,6 @@ class TouristAgentService:
                                             )
                             except json.JSONDecodeError:
                                 logger.warning("웹 검색 결과 파싱 실패, 데이터 없음")
-
                 unique_final_result = []
                 for spot in final_result:
                     key = (spot.get("kor_name"), spot.get("address"))
@@ -677,17 +662,14 @@ class TouristAgentService:
                         spot["spot_category"] = 1
                         unique_final_result.append(spot)
                         seen_spots.add(key)
-
                 for spot in unique_final_result:
                     spot["spot_category"] = 1
                 final_result_with_time = self._assign_spot_times(
                     unique_final_result, days, input_data
                 )
-
                 for spot in final_result_with_time:
                     spot["spot_category"] = 1
                 return final_result_with_time
-
         except Exception as e:
             logger.error("[TouristAgent] 에러 - %s", e)
             traceback.print_exc()

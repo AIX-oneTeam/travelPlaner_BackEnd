@@ -1,4 +1,3 @@
-# app/services/survey/survey_service.py
 from typing import Optional, List
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.data_models.data_model import SurveyResponse
