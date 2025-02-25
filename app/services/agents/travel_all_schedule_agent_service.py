@@ -202,6 +202,7 @@ class TravelScheduleAgentService:
             #     logging.info(f"[DEBUG] Redis에 실제로 저장된 값:\n {saved_value}")
 
             # (4) 최종 결과 반환
+            processed_result["token_usage"] = result.token_usage.__dict__
             return processed_result
 
         except Exception as e:

@@ -60,7 +60,7 @@ async def handle_google_callback(code: str, state: str):
             "email": user_info.get("email"),
             "nickname": user_info.get("name"),
             "profile_url": user_info.get("picture"),
-            "roles": ["USER"],
+            "roles": user_info.get("roles"),
             "access_token": access_token_google,
             "refresh_token": refresh_token_google
             }

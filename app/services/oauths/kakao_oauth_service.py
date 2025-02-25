@@ -102,7 +102,7 @@ async def handle_kakao_callback(code: str, state:str) -> dict:
             "nickname": payload["nickname"], 
             "email": payload["email"],
             "profile_url": payload["profile_image"],
-            "roles": ["USER"],
+            "roles": payload["roles"],
             "access_token": jwt_token,
             "refresh_token": refresh_token,
 
