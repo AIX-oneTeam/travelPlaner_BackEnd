@@ -2,7 +2,7 @@ from datetime import datetime, time, timezone
 from sqlalchemy import Column, Double, DateTime,Float
 from typing import List, Optional
 import phonenumbers
-from pydantic import field_validator
+from pydantic import field_validator, BaseModel
 from sqlmodel import Field, Relationship, SQLModel
 from sqlalchemy import text
 from pydantic import validator
@@ -262,7 +262,11 @@ class Inquiry(SQLModel, table=True):
     updated_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False)
     )
-    answered_at: Optional[datetime] = Field(default=None)
+    answered_at: Optional[datetime] = Field(
+        sa_column=Column(
+            DateTime(timezone=True), nullable=True
+        )
+    )
 
     member: "Member" = Relationship(back_populates="inquiries")
 
@@ -270,7 +274,7 @@ class Inquiry(SQLModel, table=True):
 class SurveyResponse(SQLModel, table=True):
     __tablename__ = "survey_response"
     id: Optional[int] = Field(default=None, primary_key=True)
-    member_id: int = Field(foreign_key="member.id")  # foreign_key 추가
+    member_id: int = Field(foreign_key="member.id")
     plan_id: Optional[int] = Field(default=None)
     rating: int = Field(default=0)
     comment: str = Field(default="", max_length=500)
@@ -281,11 +285,15 @@ class SurveyResponse(SQLModel, table=True):
 
 
 
-
 class AgentMetrics(SQLModel, table=True):
     __tablename__ = "agent_metrics"
 
     id: Optional[int] | None = Field(default=None, primary_key=True)
     agent_name: str = Field(max_length=255, nullable=False)  # 실행한 에이전트 이름
     response_time: float = Field(sa_column=(Column(Float)))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)  # 실행 시간 기록
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)  
+class SurveyResponseCreate(BaseModel):
+    rating: int
+    comment: str
+    plan_id: Optional[int] = None
+

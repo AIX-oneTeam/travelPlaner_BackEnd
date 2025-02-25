@@ -1,10 +1,13 @@
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import select
 from app.data_models.data_model import Inquiry
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+# KST = UTC+9
+kst = timezone(timedelta(hours=9))
 
 
 # 문의 조회 (단일)
@@ -32,7 +35,7 @@ async def get_inquiry(inquiry_id: int, session: AsyncSession):
 
 # 문의 조회 (전체 조회 - 관리자용)
 async def get_all_inquiries(session: AsyncSession):
-    query = select(Inquiry).order_by(Inquiry.created_at.desc())
+    query = select(Inquiry).order_by(Inquiry.inquiry_id.desc())
     result = await session.scalars(query)
     inquiries = result.all()
 
@@ -53,11 +56,11 @@ async def get_all_inquiries(session: AsyncSession):
 
 
 # 관리자 답변 저장
-async def save_answer(inquiry: Inquiry, answer_text: str, session: AsyncSession):
+async def save_answer(inquiry: Inquiry, answer: str, session: AsyncSession):
     # 'answer' 필드와 상태 업데이트
-    inquiry.answer = answer_text
+    inquiry.answer = answer
     inquiry.status = "answered"
-    inquiry.answered_at = datetime.now(timezone.utc)
+    inquiry.answered_at = datetime.now(kst)
 
     # DB에 변경사항 반영
     await session.commit()

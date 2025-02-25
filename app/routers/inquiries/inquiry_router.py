@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Body
 from app.dtos.common.response import ErrorResponse, SuccessResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.repository.db import get_async_session
@@ -7,10 +7,9 @@ from app.services.inquiries.inquiry_service import (
     get_inquiry_service,
     get_all_inquiries_service,
     answer_inquiry,
-    send_email,
 )
 from app.repository.members.mebmer_repository import get_memberId_by_email
-from app.data_models.data_model import Inquiry
+from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,19 +17,19 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter()
 
+class InquiryCreate(BaseModel):
+    title: str
+    content: str
 
 # 문의 등록 (사용자)
 @router.post("")
 async def create_inquiry_route(
     request: Request,
+    inquiry: InquiryCreate = Body(...),
     session: AsyncSession = Depends(get_async_session),
 ):
     try:
-        request_data = await request.json()
-        title = request_data.get("title")
-        content = request_data.get("content")
-
-        if not title or not content:
+        if not inquiry.title or not inquiry.content:
             return ErrorResponse(
                 message="제목과 내용을 모두 입력해야 합니다.", status_code=400
             )
@@ -45,10 +44,10 @@ async def create_inquiry_route(
             )
         else:
             logger.info(
-                f"[ inquiry_router ] request_data.email: {request_data.get('email')}"
+                f"[ inquiry_router ] request_data.email: {request.state.user.get('email')}"
             )
             member_id = await get_memberId_by_email(
-                email=request_data.get("email"), session=session
+                email=request.state.user.get("email"), session=session
             )
             logger.info(f"[ inquiry_router ] member_id: {member_id}")
 
@@ -60,8 +59,8 @@ async def create_inquiry_route(
         # 문의 등록
         inquiry_id = await create_inquiry(
             inquiry_data={
-                "title": title,
-                "content": content,
+                "title": inquiry.title,
+                "content": inquiry.content,
             },
             member_id=member_id,
             session=session,
@@ -74,25 +73,6 @@ async def create_inquiry_route(
     except Exception as e:
         logger.error(f"문의 등록 실패: {e}")
         return ErrorResponse(message="문의 등록에 실패했습니다.", error_detail=str(e))
-
-
-# 문의 조회 (단일)
-@router.get("/{inquiry_id}")
-async def read_inquiry(
-    inquiry_id: int,
-    session: AsyncSession = Depends(get_async_session),
-):
-    try:
-        inquiry = await get_inquiry_service(inquiry_id, session)
-
-        if not inquiry:
-            return ErrorResponse(message="문의가 존재하지 않습니다.", status_code=404)
-
-        return SuccessResponse(data={"inquiry": inquiry}, message="문의 조회 성공")
-
-    except Exception as e:
-        logger.error(f"문의 조회 실패: {e}")
-        return ErrorResponse(message="문의 조회에 실패했습니다.", error_detail=str(e))
 
 
 # 관리자: 전체 문의 조회
@@ -120,16 +100,36 @@ async def read_all_inquiries(
         )
 
 
-# 관리자: 문의에 답변 등록 + 사용자 이메일 발송
-@router.put("/admin/answer/{inquiry_id}")
-async def answer_inquiry_route(
+# 문의 조회 (단일)
+@router.get("/{inquiry_id}")
+async def read_inquiry(
     inquiry_id: int,
-    answer_text: str,
-    request: Request,
     session: AsyncSession = Depends(get_async_session),
 ):
     try:
-        # 관리자 인증 정보로부터 회원 정보 조회 (관리자 계정의 정보가 있다면)
+        print(f"💥💥 inquiry_id: {inquiry_id}")
+        inquiry = await get_inquiry_service(inquiry_id, session)
+        print(f"✅✅inquiry: {inquiry}")
+
+        if not inquiry:
+            return ErrorResponse(message="문의가 존재하지 않습니다.", status_code=404)
+
+        return SuccessResponse(data={"inquiry": inquiry}, message="문의 조회 성공")
+
+    except Exception as e:
+        logger.error(f"문의 조회 실패: {e}")
+        return ErrorResponse(message="문의 조회에 실패했습니다.", error_detail=str(e))
+
+
+# 관리자: 문의에 답변 등록 + 사용자 이메일 발송
+@router.put("/admin/answer/{inquiry_id}")
+async def answer_inquiry_route(
+    request: Request,
+    inquiry_id: int,
+    session: AsyncSession = Depends(get_async_session),
+    answer: str = Body(..., embed=True),
+):
+    try:
         if request.state.user:
             member_email = request.state.user.get("email")
             provider = request.state.user.get("provider")
@@ -139,17 +139,13 @@ async def answer_inquiry_route(
         else:
             member_id = None
 
-        # 문의가 존재하는지 확인 및 답변 등록 (여기서는 기존 get_inquiry는 그대로 두고,
-        # 실제 수정 작업은 session.get()을 통해 처리하는 answer_inquiry 서비스를 사용)
         updated_inquiry = await answer_inquiry(
-            inquiry_id=inquiry_id, answer_text=answer_text, session=session
+            inquiry_id=inquiry_id, answer=answer, session=session
         )
+
         if not updated_inquiry:
             return ErrorResponse(message="문의가 존재하지 않습니다.", status_code=404)
 
-        # 여기서 updated_inquiry에는 원래 문의 작성자의 member_id가 포함되어 있습니다.
-        # 만약 관리자의 정보(즉, request.state.user에서 조회한 member_id)를 사용해 이메일 발송을 원한다면,
-        # 아래와 같이 updated_inquiry의 member_id를 덮어쓸 수 있습니다.
         if member_id is not None:
             updated_inquiry["member_id"] = member_id
 
