@@ -38,7 +38,7 @@ async def naver_callback(code: str, state: str, response: Response, session: Asy
             samesite="None",
         )
 
-        member = await get_member_by_email_and_provider(user_data["email"], "google", session)
+        member = await get_member_by_email_and_provider(user_data["email"], "naver", session)
         if not member:
             print("---------------------------------------")
             print("💡naver_user_data", user_data)
@@ -57,7 +57,7 @@ async def naver_callback(code: str, state: str, response: Response, session: Asy
                 "nickname": user_data["nickname"],
                 "email":user_data["email"],
                 "profile_url":user_data["profile_url"],
-                "roles":member.roles,}
+                "roles":member.roles if member else "USER",}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"네이버 인증 실패: {e}") 

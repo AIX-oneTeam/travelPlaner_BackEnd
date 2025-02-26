@@ -54,5 +54,5 @@ async def google_callback(code:str, state:str, response: Response, session: Asyn
             "email": user_data["email"],
             "nickname": user_data["nickname"],
             "profile_url": user_data["profile_url"],
-            "roles": member.roles}
+            "roles": member.roles if member else "USER"}
     
