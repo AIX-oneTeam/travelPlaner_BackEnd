@@ -5,7 +5,7 @@ from langchain_openai import ChatOpenAI
 from app.services.agents.tools.accommodation_tool import GeoCoordinateTool, GoogleReviewTool, GoogleHotelSearchTool,GooglePlaceTool
 from app.dtos.spot_models import spots_pydantic
 import logging
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -13,6 +13,19 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 SERP_API_KEY = os.getenv("SERP_API_KEY")
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+file_handler = logging.FileHandler('logs/accommodation_agent.log', encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# 에러 전용 로그 파일 생성
+file_handler_error = logging.FileHandler('logs/accommodation_agent_error.log', encoding="utf-8")
+file_handler_error.setLevel(logging.ERROR)
+formatter_error = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler_error.setFormatter(formatter_error)
+logger.addHandler(file_handler_error)
 
 class AccommodationAgentService:
     _instance = None
@@ -262,7 +275,7 @@ class AccommodationAgentService:
                 output_json=spots_pydantic,
             ),                                               
         ]
-    @time_check
+    @time_token_check
     async def create_recommendation_accommodation(self, user_input: dict):
         """
         CrewAI를 실행하여 사용자 맞춤 숙소를 추천하는 서비스
@@ -279,8 +292,14 @@ class AccommodationAgentService:
 
             # 4. 결과 처리
             result = await crew.kickoff_async()
-            return result.json_dict.get("spots", [])
+            
+            logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
 
+            return {
+                "spots": result.json_dict.get("spots", []),
+                "token_usage": result.token_usage.__dict__
+            }
+            
         except Exception as e:
             print(f"[accommodation agent error] --- accommodation agent error {str(e)}")
             logger.error(f"[accommodation agent error] --- accommodation agent error {str(e)}")

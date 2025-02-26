@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 
 from app.data_models.data_model import Member
-from app.repository.members.mebmer_repository import is_exist_member_by_email, save_member
+from app.repository.members.mebmer_repository import get_member_by_email_and_provider, is_exist_member_by_email, save_member
 from app.services.oauths.naver_oauth_service import get_login_url, handle_callback
 from app.repository.db import get_async_session
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -38,7 +38,8 @@ async def naver_callback(code: str, state: str, response: Response, session: Asy
             samesite="None",
         )
 
-        if not await is_exist_member_by_email(user_data["email"], "naver", session):
+        member = await get_member_by_email_and_provider(user_data["email"], "google", session)
+        if not member:
             print("---------------------------------------")
             print("💡naver_user_data", user_data)
             print("---------------------------------------")
@@ -47,7 +48,7 @@ async def naver_callback(code: str, state: str, response: Response, session: Asy
                 name=user_data["nickname"],
                 nickname=user_data["nickname"],
                 picture_url=user_data["profile_url"],
-                roles=user_data["roles"],
+                roles="USER",
                 access_token=user_data["access_token"],
                 refresh_token=user_data["refresh_token"],
                 oauth="naver"), session)
@@ -56,7 +57,7 @@ async def naver_callback(code: str, state: str, response: Response, session: Asy
                 "nickname": user_data["nickname"],
                 "email":user_data["email"],
                 "profile_url":user_data["profile_url"],
-                "roles":user_data["roles"],}
+                "roles":member.roles,}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"네이버 인증 실패: {e}") 

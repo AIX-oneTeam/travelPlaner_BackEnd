@@ -6,12 +6,25 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-async def save_execution_time(agent_name: str, execution_time: float , session: AsyncSession):
+async def save_execution_time_token(agent_name: str, execution_time: float , token_usage: dict, session: AsyncSession):
     """
-    실행 시간을 저장하는 함수
+    실행 시간, 토큰 사용량을 저장하는 함수
     """
     try:
-        new_metric = AgentMetrics(agent_name=agent_name , response_time=execution_time)
+        total_tokens=token_usage.get("total_tokens") if token_usage else None,
+        prompt_tokens=token_usage.get("prompt_tokens") if token_usage else None,
+        cached_prompt_tokens=token_usage.get("cached_prompt_tokens") if token_usage else None,
+        completion_tokens=token_usage.get("completion_tokens") if token_usage else None,
+        successful_requests=token_usage.get("successful_requests") if token_usage else None
+        new_metric = AgentMetrics(
+            agent_name=agent_name,
+            response_time=execution_time,
+            total_tokens=total_tokens,
+            prompt_tokens=prompt_tokens,
+            cached_prompt_tokens=cached_prompt_tokens,
+            completion_tokens=completion_tokens,
+            successful_requests=successful_requests
+            )
         session.add(new_metric)
         await session.commit()
         return new_metric

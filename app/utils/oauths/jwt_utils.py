@@ -103,7 +103,7 @@ def create_jwt_naver(provider: str, data: dict = None, member_info: Member = Non
             "provider": str(member_info.oauth),  # 소셜 로그인 제공자
             "nickname": member_info.name,  # 닉네임
             "email": member_info.email,  # 이메일
-            "roles": member_info.roles if member_info else "USER",  # 역할
+            "roles": member_info.roles if member_info and member_info.roles else "USER",
             "profile_image": member_info.picture_url,  # 프로필 이미지
             "exp": int(exp_time.timestamp()),  # 만료 시간
             "iat": int(current_time.timestamp())  # 발급 시간
@@ -114,7 +114,7 @@ def create_jwt_naver(provider: str, data: dict = None, member_info: Member = Non
         expire = datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         to_encode.update({"exp": expire})  # 만료 시간 추가
         to_encode.update({"provider": provider})
-        to_encode.update({"roles": member_info.roles if member_info.roles else "USER"})
+        to_encode.update({"roles": member_info.roles if member_info and member_info.roles else "USER"})
     
     
     token = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=ALGORITHM)
@@ -138,7 +138,7 @@ def create_jwt_kakao(provider: str, auth_info: dict = None, member_info: Member 
             "profile_image": auth_info.get("properties", {}).get("profile_image"),  # 프로필 이미지
             "exp": int(exp_time.timestamp()),  # 만료 시간
             "iat": int(current_time.timestamp()),  # 발급 시간
-            "roles": member_info.roles if member_info else "USER",  # 역할
+            "roles": member_info.roles if member_info and member_info.roles else "USER"
             }
     
     if member_info is not None:
@@ -148,7 +148,7 @@ def create_jwt_kakao(provider: str, auth_info: dict = None, member_info: Member 
             "provider": str(member_info.oauth),  # 소셜 로그인 제공자
             "nickname": member_info.name,  # 닉네임
             "email": member_info.email,  # 이메일
-            "roles": member_info.roles if member_info.roles else "USER",  # 역할
+            "roles": member_info.roles if member_info and member_info.roles else "USER",
             "profile_image": member_info.picture_url,  # 프로필 이미지
             "exp": int(exp_time.timestamp()),  # 만료 시간
             "iat": int(current_time.timestamp())  # 발급 시간
@@ -175,7 +175,7 @@ def create_jwt_google(provider: str, auth_info: dict = None, member_info: Member
             "profile_image": auth_info.get("picture"),  # 프로필 이미지
             "exp": int(exp_time.timestamp()),  # 만료 시간
             "iat": int(current_time.timestamp()),  # 발급 시간
-            "roles": member_info.roles if member_info else "USER",  # 역할
+            "roles": member_info.roles if member_info and member_info.roles else "USER"
         }
     if member_info is not None:
         payload = {
@@ -183,7 +183,7 @@ def create_jwt_google(provider: str, auth_info: dict = None, member_info: Member
             "sub": str(member_info.id),  # 사용자 식별자
             "provider": str(member_info.oauth),  # 소셜 로그인 제공자
             "nickname": member_info.name,  # 닉네임
-            "roles": member_info.roles if member_info.roles else "USER",  # 역할
+            "roles": member_info.roles if member_info and member_info.roles else "USER",
             "email": member_info.email,  # 이메일
             "profile_image": member_info.picture_url,  # 프로필 이미지
             "exp": int(exp_time.timestamp()),  # 만료 시간

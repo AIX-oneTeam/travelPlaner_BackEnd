@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from typing import List, Dict
 from fastapi import HTTPException
 from app.dtos.spot_models import spots_pydantic
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from sqlmodel.ext.asyncio.session import AsyncSession
 from redis.asyncio import Redis 
@@ -65,11 +65,11 @@ class TravelScheduleAgentService:
         입력:
         - 여행 기간: {start_date} ~ {end_date} (사용자가 선택한 여행 날짜 범위)
         - 여행 지역: {main_location}
-        - 외부 데이터: {external_data}
+        - "외부 데이터": {external_data}
         - 사용 가능한 카테고리: restaurant, cafe, site, accommodation (제공된 카테고리만 사용)
 
         규칙 및 조건:
-         ** tool 사용시 input은 "외부 데이터"의 카테고리별 spot정보들을 list[dict]형태로 묶어 사용하세요.**
+         ** tool 사용시 input은 "외부 데이터"의 spots에 담긴 spot 정보들을 list로 묶어 사용하세요.**
         1. 일정은 각 날짜별로 생성되며, 전체 여행 기간은 {start_date} ~ {end_date}까지이다.
         2. 각 날짜별로 생성되는 시간 슬롯은 다음과 같다.
         - **중요** 만일 {end_date}뺴기{start_date}의 값이 '2' 이상일 경우, 중간일 일정을 만든다.
@@ -156,7 +156,7 @@ class TravelScheduleAgentService:
             "spots": result.pydantic.model_dump()
         }
 
-    @time_check
+    @time_token_check
     async def create_plan(
         self,
         input_dict: dict, 
@@ -183,6 +183,7 @@ class TravelScheduleAgentService:
             tasks = self._create_tasks()
             crew = Crew(tasks=tasks, agents=list(self.agents.values()), verbose=True)
             result = await crew.kickoff_async(inputs=input_dict)
+            logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
             processed_result = self._process_result(result, input_dict)
 
             # (3) Redis 저장 (디버깅 로그)
@@ -201,6 +202,7 @@ class TravelScheduleAgentService:
             #     logging.info(f"[DEBUG] Redis에 실제로 저장된 값:\n {saved_value}")
 
             # (4) 최종 결과 반환
+            processed_result["token_usage"] = result.token_usage.__dict__
             return processed_result
 
         except Exception as e:

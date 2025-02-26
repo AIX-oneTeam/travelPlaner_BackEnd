@@ -1,3 +1,4 @@
+from datetime import datetime
 import itertools
 import json
 import httpx
@@ -17,8 +18,20 @@ import logging
 from app.utils.validate_address import validate_address
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
+file_handler = logging.FileHandler('logs/cafe_agent.log', encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 load_dotenv()
+
+# 에러 전용 로그 파일 생성
+file_handler_error = logging.FileHandler('logs/cafe_agent_error.log', encoding="utf-8")
+file_handler_error.setLevel(logging.ERROR)
+formatter_error = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler_error.setFormatter(formatter_error)
+logger.addHandler(file_handler_error)
+
 # 네이버 API 관련 환경변수
 AGENT_NAVER_CLIENT_ID = os.getenv("AGENT_NAVER_CLIENT_ID")
 AGENT_NAVER_CLIENT_SECRET = os.getenv("AGENT_NAVER_CLIENT_SECRET")   
@@ -47,6 +60,7 @@ class NaverBlogSearchTool(BaseTool):
                 link = item.get("link", "")
                 if link:  # 링크가 존재할 때만 추가
                     links.append(link)   
+
             return links
         
         except Exception as e:
@@ -106,9 +120,12 @@ class NaverBlogSearchTool(BaseTool):
             # 중첩 리스트 평탄화
             cafe_urls_draft = list(itertools.chain.from_iterable(search_results))
             cafe_urls = [url for url in cafe_urls_draft if url.startswith(('https://blog.naver.com', 'https://m.blog.naver.com'))]
-            logger.info(f"사용한 URLs 수: {len(cafe_urls)}") 
             
             if cafe_urls:
+
+                # url 방문 개수 기록
+                logger.info(f"NaverBlogSearchTool : 검색시 사용한 url 수 {len(cafe_urls)}")
+
                 # 크롤링
                 crawling_tasks = [self._fetch_blog_data(client, urls) for urls in cafe_urls]
                 crawling_results = await asyncio.gather(*crawling_tasks)
@@ -119,7 +136,7 @@ class NaverBlogSearchTool(BaseTool):
                 if error_results:
                     logger.error(f"[Cafetool] Crawling Errors: {error_results}")
                 
-                            # 여기서 valid_results를 한 번에 필터링
+                # 여기서 valid_results를 한 번에 필터링
                 filtered_results = []
                 for place_data in valid_results:
                     addr = place_data.get("address", "")
@@ -209,7 +226,11 @@ class NaverReviewCralwerTool(BaseTool):
 
     async def _arun(self, placeIds: List[str]) -> str:
         """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
-        
+                   
+        # url 방문 개수 기록
+        logger.info(f"NaverReviewCralwerTool : 검색시 사용한 url 수 {len(placeIds)}")
+
+
         async with httpx.AsyncClient() as client:
             tasks = [self._fetch_review_data(client, placeId) for placeId in placeIds]
             results = await asyncio.gather(*tasks)
@@ -247,17 +268,18 @@ class NaverBusinessInfoTool(BaseTool):
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "html.parser")
             
+            website = f"https://m.place.naver.com/restaurant/{placeId}/home"
+            
             # 기본 반환 데이터
             result = {
                 "placeId": placeId,
-                "url": "정보 없음",
+                "url": website,
                 "business_hour": "정보 없음",
                 "category": "정보 없음"
             }
             
             # URL 정보 추출
             try:
-                website = f"https://m.place.naver.com/restaurant/{placeId}/home"
                 if div_tag := soup.find("div", class_="jO09N"):
                     if a_tag := div_tag.find("a"):
                         result["url"] = a_tag.get("href") or website
@@ -286,6 +308,9 @@ class NaverBusinessInfoTool(BaseTool):
     
     async def _arun(self, placeIds: List[str]) -> str:
         """여러 개의 장소 placeId를 받아 카페 리뷰를 수집"""
+
+        # url 방문 개수 기록
+        logger.info(f"NaverBusinessInfoTool : 검색시 사용한 url 수 {len(placeIds)}")
         
         async with httpx.AsyncClient() as client:
             tasks = [self._fetch_business_info(client, placeId) for placeId in placeIds]

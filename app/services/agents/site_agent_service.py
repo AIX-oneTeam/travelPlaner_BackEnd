@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 from app.repository.members.mebmer_repository import get_memberId_by_email
 from app.dtos.site_models import TouristSite, TouristSiteList
 from app.utils.calculate_trip_days import calculate_trip_days
-from app.utils.time_check import time_check
+from app.utils.time_check import time_token_check
+
 
 from app.repository.agents.site_plan_spots_repository import (
     get_member_plan_spots,
@@ -33,7 +34,11 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
+file_handler = logging.FileHandler('logs/site_agent.log', encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 def parse_first_json(s: str):
     decoder = json.JSONDecoder()
@@ -347,7 +352,7 @@ class TouristAgentService:
                 logger.warning(f"추가 관광지 파싱 실패: {e}")
         return additional_spots
 
-    @time_check
+    @time_token_check
     async def create_tourist_plan(
         self,
         input_data: dict,
@@ -466,6 +471,8 @@ class TouristAgentService:
                         verbose=True,
                     )
                     result = await crew.kickoff_async(inputs=input_data)
+                    logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+
                     logger.info(
                         "[TouristAgent] Crew execution completed with result: %s",
                         result,
@@ -497,6 +504,8 @@ class TouristAgentService:
                         verbose=True,
                     )
                     result = await draft_crew.kickoff_async(inputs=input_data)
+                    logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+
                     if (
                         result is None
                         or not hasattr(result, "tasks_output")
@@ -597,7 +606,14 @@ class TouristAgentService:
                 )
                 for spot in final_result_with_time:
                     spot["spot_category"] = 1
-                return final_result_with_time
+                    
+                    
+                final_result_dict = {
+                    "spots": final_result_with_time,  # 리스트는 여기 저장
+                    "token_usage": result.token_usage.__dict__  # token_usage는 별도로 저장
+                }
+                return final_result_dict    
+
             else:
                 current_plan_id = input_data.get("plan_id")
                 if "main_location" not in input_data or not input_data["main_location"]:
@@ -612,6 +628,8 @@ class TouristAgentService:
                     verbose=True,
                 )
                 result = await crew.kickoff_async(inputs=input_data)
+                logger.info(f"----------result.token_usage.__dict__: {result.token_usage.__dict__}")      
+                
                 if (
                     result is None
                     or not hasattr(result, "tasks_output")
@@ -669,7 +687,13 @@ class TouristAgentService:
                 )
                 for spot in final_result_with_time:
                     spot["spot_category"] = 1
-                return final_result_with_time
+                    
+                final_result_dict = {
+                    "spots": final_result_with_time,  # 리스트는 여기 저장
+                    "token_usage": result.token_usage.__dict__  # token_usage는 별도로 저장
+                }
+                return final_result_dict
+
         except Exception as e:
             logger.error("[TouristAgent] 에러 - %s", e)
             traceback.print_exc()
