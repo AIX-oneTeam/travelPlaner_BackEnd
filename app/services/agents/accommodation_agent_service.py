@@ -80,11 +80,25 @@ class AccommodationAgentService:
         concepts = user_input.get('concepts', [])
         prompt = user_input.get('prompt', '') 
         
-        #컨셉 혹은 프롬프트만 키워드로 제공
+        accommodation_concept = [
+                "호텔",
+                "리조트",
+                "캠핑",
+                "글램핑",
+                "한옥",
+                "풀빌라",
+                "게스트 하우스",
+            ]
+
+        # 컨셉 혹은 프롬프트만 키워드로 제공
         if prompt:
             keywords = [prompt]
         elif concepts:
-            keywords = concepts
+            # concepts에 있는 값이 accommodation_concept에 있다면 keywords에 추가
+            keywords = []
+            for concept in concepts:
+                if concept in accommodation_concept:
+                    keywords.append(concept)
         else:
             keywords = []
 
@@ -119,7 +133,7 @@ class AccommodationAgentService:
         return{
             "geocoding_expert": Agent(
                 role="좌표 조회 전문가",
-                goal="사용자가 입력한 location(예: '부산광역시')의 위도와 경도를 조회하며, location 값은 그대로 유지한다.",
+                goal="사용자가 입력한 main_location의 위도와 경도를 조회하며, main_location값은 그대로 유지한다.",
                 backstory="나는 위치 데이터 전문가로, 입력된 location 값을 변경하지 않고 self.geo_cording_tool을 통해 좌표를 조회한다.",
                 tools=[self.geo_cording_tool],
                 llm=self.llm,
@@ -146,8 +160,8 @@ class AccommodationAgentService:
             ),  
             "accommodation_review_expert": Agent(
                 role="숙소 리뷰 검색 및 키워드 추출 전문가",
-                goal="예약 가능한 숙소의 리뷰를 검색하고, 각 리뷰에서 키워드를 추출한다.",
-                backstory="나는 숙소 리뷰 검색 및 키워드 추출 전문가로, self.google_review_tool을 사용하여 예약 가능한 각 호텔에 대한 리뷰를 검색하고, 리뷰에서 숙소를 잘 나타낼 수 있는 키워드를 추출합니다.",
+                goal="cid를 이용하여 각 숙소의 리뷰를 검색하고, 각 리뷰에서 키워드를 추출한다.",
+                backstory="나는 숙소 리뷰 검색 및 키워드 추출 전문가로, 각 숙소의 cid와 self.google_review_tool을 사용하여 각 숙소에 대한 리뷰를 검색하고, 리뷰에서 해당 숙소를 잘 나타낼 수 있는 키워드를 추출합니다.",
                 tools=[self.google_review_tool],
                 llm=self.llm,
                 verbose=True,
@@ -156,15 +170,15 @@ class AccommodationAgentService:
             "accommodation_user_prompt_keyword_expert": Agent(
                 role="사용자 키워드 추출 전문가",
                 goal="사용자가 입력한 input에서 키워드를 추출한다.",
-                backstory="나는 키워드 추출 전문가로, llm을 사용하여 사용자가 입력한 input에서 키워드를 추출합니다.",
+                backstory="나는 키워드 추출 전문가로, 사용자가 입력한 input에서 키워드를 추출한다. 절대로 사용자가 입력값이 아닌 곳에서 키워드를 추출하지 않는다.",
                 llm=self.llm,
                 verbose=True,
                 async_execution=True,
             ),            
             "accommodation_list_expert": Agent(
                 role="숙소 리스트 정리 전문가",
-                goal="사용자가 입력한 키워드 값과 숙소에서 추출한 키워드를 비교하여 더 많은 키워드가 일치하는 숙소의 정보가 상위에 위치하는 추천 리스트를 만든다. **이때, 반드시 이전 Task에서 제공된 예약 가능한 숙소 리스트의 정보를 활용해야 한다.**",
-                backstory="나는 숙소 정보 정리 전문가이며,사용자가 입력한 키워드 값과 숙소에서 추출한 키워드를 비교하여 숙소에 대한 정보를 검색 결과를 사용하여 제공한다. 나는 절대로 제공된 데이터 외의 데이터를 생성하여 제공하지 않는다. ",
+                goal="제공된 숙소 데이터를 이용하요 사용자가 입력한 데이터로 추출한 키워드과 숙소의 키워드를 비교해, 일치하는 키워드가 많은 제공된 숙소의 데이터를 상위로 정렬한다.**이때, 반드시 accommodation_review_expert 결과 데이터를 사용한다 **",
+                backstory="나는 숙소 정보 정리 전문가이며,사용자가 입력한 키워드 값과 숙소에서 추출한 키워드를 비교하여 숙소에 대한 데이터를 정렬, 제공한다. 나는 반드시 반드시 accommodation_review_expert의 데이터를 정렬 후 제공한다.",
                 llm=self.llm,
                 verbose=True,
                 async_execution=True,
@@ -173,6 +187,13 @@ class AccommodationAgentService:
     def create_accommodation_tasks(self, input_data : dict):
         """테스크 생성 메서드"""
         return[
+            Task( #프롬프트 키워드 추출 task
+                description=f"""
+                - 사용자가 입력한 {input_data['keywords']}에서 키워드를 추출합니다.
+                - 키워드는 사용자가 입력한 {input_data['keywords']}에서 단어를 추출합니다.""",
+                agent=self.agents["accommodation_user_prompt_keyword_expert"],
+                expected_output="사용자가 입력한 {input_data['keywords']}에서 추출한 키워드",
+            ),
             Task( #좌표 task
                 description=f"{input_data['main_location']}의 위도, 경도를 추출한다.",
                 agent=self.agents["geocoding_expert"],
@@ -188,12 +209,17 @@ class AccommodationAgentService:
                 address : 주소,
                 latitude : 위도,
                 longitude : 경도,
-                thumbnail : thumbnail 반드시 검색 결과에서 추출한 url, 절대로 임의로 제공하지 않습니다. 
+                thumbnail : 반드시 'thumbnail'키의 값, 절대로 임의로 제공하지 않습니다. 
                 description : description
                 """,
                 agent=self.agents["accommodation_pre_list_expert"],
                 expected_output="""
-                title, address, latitude, longtitude, thumbnail, description를 포함한 숙소 리스트. 반드시 검색 결과에서 데이터를 가져온다.""",
+                title : 숙소 이름,
+                address : 주소,
+                latitude : 위도,
+                longitude : 경도,
+                thumbnail : 반드시 'thumbnail'키의 값, 절대로 임의로 제공하지 않습니다. 
+                description : description""",
             ),
             Task(  #cid 검색 task
                 description=f"""
@@ -204,18 +230,24 @@ class AccommodationAgentService:
                 address : adrress,
                 latitude :latitude,
                 longitude :longitude,
-                thumbnail : 반드시 self.google_hotel_search_tool의 검색 결과의 thumbnail, 절대로 임의로 제공하지 않습니다. 
+                thumbnail : thumbnail은 반드시 self.google_hotel_search_tool의 검색 결과의 thumbnail, 절대로 임의로 데이터를 반환하지 않습니다. 
                 description : description
                 cid: cid
                 """,
                 agent=self.agents["accommodation_place_expert"],
                 expected_output="""
-                - 10개의 중복되지 않는 title, address, latitude, longitude,thumbnail,description, cid가 모두 있는 숙소 정보 리스트
+                title : 숙소 이름,
+                address : adrress,
+                latitude :latitude,
+                longitude :longitude,
+                thumbnail : thumbnail은 반드시 self.google_hotel_search_tool의 검색 결과의 thumbnail, 절대로 임의로 데이터를 반환하지 않습니다. 
+                description : description
+                cid: cid
                 """,
             ),
             Task( #리뷰 검색 task
                 description=f"""
-                - {self.google_place_tool}의 검색 결과인 예약 가능한 각 숙소들에 대한 cid를 변수로 전달하고 툴은 {self.google_review_tool}을 사용하여 각 숙소에 대한 리뷰를 검색한다.
+                - accommodation_place_expert의 검색 결과를 이용하여 각 숙소들에 대한 cid를 변수로 전달하고 툴은 {self.google_review_tool}을 사용하여 각 숙소에 대한 리뷰를 검색한다.
                 - **[중요]** 반드시 예약 가능한 숙소 리스트에 있는 7개의 숙소의 리뷰만 검색해야 합니다.
                 -리뷰에서는 각 숙소의 특징을 잘 나타낼 수 있는 키워드를 추출하여 숙소 리뷰 기반 추출 키워드를 만듭니다.
                 -반드시 숙소 리뷰 기반 추출 키워드는 각 개별 숙소에 대해서 10개씩 입니다. 숙소 리뷰 기반 추출 키워드는 각 숙소에 대한 키워드입니다.
@@ -238,24 +270,22 @@ class AccommodationAgentService:
                 """,
                 agent=self.agents["accommodation_review_expert"],
                 expected_output="""
-                - 7개의 중복되지 않는 숙소에 대한 정보,title, address, latitude, longitude, imageurl,thumbnail,description, cid, 키워드가 모두 포함되어 있어야함 
-                """,
+                title : 숙소 이름,
+                address : adrress,
+                latitude :latitude,
+                longitude :longitude,
+                thumbnail : 반드시 self.google_hotel_search_tool의 검색 결과의 thumnail, 절대로 임의로 제공하지 않습니다. 
+                description : description
+                cid: cid
+                키워드 : 숙소 키워드 7개 """,
             ),                  
-            Task( #프롬프트 키워드 추출 task
-                description=f"""
-                - 사용자가 입력한 {input_data['keywords']}에서 키워드를 추출합니다.
-                - 단 수영장이 있는 호텔, 역이 가까운 숙소 이런 형식의 경우, 분리하지 않고 수영장이 있는 호텔을 하나의 키워드, 역이 가까운 숙소를 하나의 키워드로 구분합니다.""",
-                agent=self.agents["accommodation_user_prompt_keyword_expert"],
-                expected_output="키워드",
-            ),
             Task( #사용자 키워드와 리뷰 키워드 비교 task
                 description=f"""
-                - 사용자가 입력에서 추출한 키워드와 숙소 리뷰 기반 추출 키워드를 비교하여 더 많은 키워드가 일치하는 숙소의 정보를 나열합니다.
-                - 숙소의 정보는 self.google_map_tool과  google_hotel_search_tool의 검색 결과를 사용합니다. 절대 데이터를 생성하지 않습니다.
-                - 사용자 입력에서 추출한 키워드와 일치하지 않는 숙소 정보는 생략하지 말고, 키워드가 일치하는 숙소를 우선으로 위치하게 한 뒤 나열합니다.
+                - accommodation_user_prompt_keyword_expert의 결과 키워드와 accommodation_review_expert 키워드를 비교합니다.
+                - 키워드 일치율이 높은 accommodation_review_expert 데이터의 숙소를 상위로 위치시킵니다.
                 - 숙소 리스트는 반드시 5개가 되도록 합니다.
-                - **[[중요]]:** 숙소 정보는 반드시 **이전  self.google_map_tool과 google_hotel_search_tool에서 제공된 데이터**를 활용해야 하며, 새로운 정보를 생성하거나 가상의 데이터를 만들지 마세요.
-                title : 숙소 이름,
+                - **[[중요]]:** 숙소 정보는 반드시 **accommodation_review_expert의 결과 데이터, main_location의 숙소데이터**를 활용해야 하며, 절대로 해당 지역이 아는 숙소의 데이터를 만들지 마세요.
+                title : title,
                 address : adrress,
                 latitude :latitude,
                 longitude :longitude,
@@ -270,8 +300,17 @@ class AccommodationAgentService:
                 """,
                 agent=self.agents["accommodation_list_expert"],
                 expected_output="""
-                - title, address, latitude, longtitude, cid, thunbnail, 키워드, description, link,spot_category,spot_time, phone_number를 포함한 숙소 리스트
-                """,
+                title : title,
+                address : adrress,
+                latitude :latitude,
+                longitude :longitude,
+                cid: cid
+                thumbnail : thumbnail은 반드시 self.google_hotel_search_tool의 검색 결과의 thumbnail, 절대로 임의로 데이터를 반환하지 않습니다. 
+                description : description
+                키워드 : 숙소 키워드 7개 
+                link :  https://www.google.com/travel/search?q=title title은 각 숙소의 이름이다. 절대 'https://www.example.com/title' 사용금지 .
+                spot_time : 22:00:00 으로 항상 고정 
+                spot_category : 4 로 항상 고정""",
                 output_json=spots_pydantic,
             ),                                               
         ]

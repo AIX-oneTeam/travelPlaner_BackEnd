@@ -88,7 +88,7 @@ async def generate_plan(
         input_dict = user_input.model_dump()      
         
         # 기본으로 실행할 에이전트 리스트 설정
-        agent_type = ["accommodation", "cafe", "restaurant", "site"]
+        agent_type = ["accommodation, cafe, restaurant, site"]
         input_dict["agent_type"] = agent_type
         input_dict["member_id"] = await get_member_id_by_request(request, session)
         input_dict["provider"] = request.state.user.get("provider")
