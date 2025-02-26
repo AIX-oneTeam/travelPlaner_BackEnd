@@ -66,7 +66,7 @@ async def kakao_callback(code: str, state: str, response: Response, session: Asy
         try:
             logger.info("[Kakao Callback] 회원 정보 데이터 베이스 시작")
 
-            member = await get_member_by_email_and_provider(user_data["email"], "google", session)
+            member = await get_member_by_email_and_provider(user_data["email"], "kakao", session)
             if not member:
                 await save_member(Member(
                     email=user_data["email"],
@@ -83,7 +83,7 @@ async def kakao_callback(code: str, state: str, response: Response, session: Asy
                     "nickname": user_data["nickname"],
                     "email":user_data["email"],
                     "profile_url":user_data["profile_url"],
-                    "roles":member.roles,}
+                    "roles":member.roles if member else "USER",}
 
         except Exception as e:
             logger.error(f"[Kakao Callback] 회원 정보 데이터 베이스 저장 실패: {e}")
