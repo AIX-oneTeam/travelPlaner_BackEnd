@@ -7,6 +7,7 @@ class TouristSite(BaseModel):
     kor_name: str
     eng_name: Optional[str] = None
     address: str
+    description: str
     url: Optional[str] = None
     image_url: str
     map_url: str

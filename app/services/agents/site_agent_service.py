@@ -40,6 +40,13 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
+# 에러 전용 로그 파일 생성
+file_handler_error = logging.FileHandler('logs/site_agent_error.log', encoding="utf-8")
+file_handler_error.setLevel(logging.ERROR)
+formatter_error = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler_error.setFormatter(formatter_error)
+logger.addHandler(file_handler_error)
+
 def parse_first_json(s: str):
     decoder = json.JSONDecoder()
     obj, idx = decoder.raw_decode(s)

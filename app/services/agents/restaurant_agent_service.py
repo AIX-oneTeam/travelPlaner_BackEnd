@@ -28,14 +28,19 @@ import logging
 
 logger = logging.getLogger("restaurant_agent_service")
 logger.setLevel(logging.INFO)
-
 file_handler = logging.FileHandler('logs/restaurant_agent_service.log', encoding="utf-8")
 file_handler.setLevel(logging.INFO)
-
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)
-
 logger.addHandler(file_handler)
+
+
+# 에러 전용 로그 파일 생성
+file_handler_error = logging.FileHandler('logs/restaurant_agent_error.log', encoding="utf-8")
+file_handler_error.setLevel(logging.ERROR)
+formatter_error = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler_error.setFormatter(formatter_error)
+logger.addHandler(file_handler_error)
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
